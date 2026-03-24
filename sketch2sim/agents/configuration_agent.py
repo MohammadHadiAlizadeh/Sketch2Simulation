@@ -1,14 +1,13 @@
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pydantic import BaseModel
-from langgraph.graph import StateGraph
-from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableLambda
-
+from langchain_ollama import ChatOllama
+from langgraph.graph import StateGraph
+from pydantic import BaseModel
 
 _STEP6_HEADER_RE = re.compile(
     r"(?im)^\s*#\s*===\s*Step\s*6:\s*Connect\s*Streams\s*\(Agent\s*3\)\s*===\s*$"
@@ -21,16 +20,16 @@ _STEP7_HEADER_RE = re.compile(
 class ConfigurationState(BaseModel):
     description: str
     instantiation_path: str
-    instruction_paths: List[str]
-    python_code: Optional[str] = None
-    summary: Optional[str] = None
-    output_path: Optional[str] = None
-    prompt_debug: Optional[str] = None
-    raw_output: Optional[str] = None
+    instruction_paths: list[str]
+    python_code: str | None = None
+    summary: str | None = None
+    output_path: str | None = None
+    prompt_debug: str | None = None
+    raw_output: str | None = None
 
 
 def _load_text(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as file:
+    with open(path, encoding="utf-8") as file:
         return file.read()
 
 
@@ -41,11 +40,11 @@ def _load_json_text(maybe_path_or_json: str) -> str:
     return text
 
 
-def _load_instructions(paths: List[str]) -> str:
+def _load_instructions(paths: list[str]) -> str:
     if not paths:
         return ""
 
-    parts: List[str] = []
+    parts: list[str] = []
     for path in paths:
         if path and os.path.exists(path):
             parts.append(_load_text(path).strip())
@@ -59,7 +58,9 @@ def _extract_first_code_block(text: str) -> str:
     if not text:
         return ""
 
-    match = re.search(r"```(?:python|py)?\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
+    match = re.search(
+        r"```(?:python|py)?\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE
+    )
     return match.group(1).strip() if match else text.strip()
 
 
@@ -108,7 +109,9 @@ def _build_system_prompt() -> str:
     ).strip()
 
 
-def _build_user_prompt(description: str, instantiation_code: str, instructions: str) -> str:
+def _build_user_prompt(
+    description: str, instantiation_code: str, instructions: str
+) -> str:
     return (
         "STRUCTURED_JSON:\n"
         "----------------\n"
@@ -138,10 +141,14 @@ def _replace_step_6(instantiation_code: str, step_6_code: str) -> str:
         raise ValueError("Could not find Step 6 block markers in Instantiation code.")
 
     replacement = step_6_code.rstrip() + "\n\n# === Step 7: Save Simulation ==="
-    return re.sub(pattern, lambda _: replacement, instantiation_code, count=1, flags=re.IGNORECASE)
+    return re.sub(
+        pattern, lambda _: replacement, instantiation_code, count=1, flags=re.IGNORECASE
+    )
 
 
-def generate_configuration_script(state: ConfigurationState, model_name: str) -> Dict[str, Any]:
+def generate_configuration_script(
+    state: ConfigurationState, model_name: str
+) -> dict[str, Any]:
     llm = ChatOllama(
         model=model_name,
         temperature=0,

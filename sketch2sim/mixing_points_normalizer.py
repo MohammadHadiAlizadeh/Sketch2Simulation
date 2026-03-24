@@ -1,10 +1,9 @@
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
+
+_SINGLE_IN_OUT_HINTS: set[str] = {"valve", "pump", "compressor", "preheater"}
 
 
-_SINGLE_IN_OUT_HINTS: Set[str] = {"valve", "pump", "compressor", "preheater"}
-
-
-def _is_single_in_out_unit(unit: Dict[str, Any]) -> bool:
+def _is_single_in_out_unit(unit: dict[str, Any]) -> bool:
     unit_id = (unit.get("id") or "").lower()
     unit_name = (unit.get("name") or "").lower()
     tags = [str(tag).lower() for tag in (unit.get("tags") or [])]
@@ -12,7 +11,9 @@ def _is_single_in_out_unit(unit: Dict[str, Any]) -> bool:
     return any(hint in text for hint in _SINGLE_IN_OUT_HINTS)
 
 
-def _insert_unit_before(units: List[Dict[str, Any]], new_unit: Dict[str, Any], before_id: str) -> None:
+def _insert_unit_before(
+    units: list[dict[str, Any]], new_unit: dict[str, Any], before_id: str
+) -> None:
     target_id = (before_id or "").strip()
     if not target_id:
         units.append(new_unit)
@@ -26,7 +27,7 @@ def _insert_unit_before(units: List[Dict[str, Any]], new_unit: Dict[str, Any], b
     units.append(new_unit)
 
 
-def normalize_mixing_points(extraction: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def normalize_mixing_points(extraction: dict[str, Any] | None) -> dict[str, Any]:
     """
     Insert an explicit mixer upstream of single-inlet units when multiple inbound
     streams are detected.
@@ -41,20 +42,22 @@ def normalize_mixing_points(extraction: Optional[Dict[str, Any]]) -> Dict[str, A
     if not isinstance(extraction, dict):
         return {}
 
-    units: List[Dict[str, Any]] = extraction.get("units") or []
-    feed_streams: List[Dict[str, Any]] = extraction.get("feed_streams") or []
-    intermediate_streams: List[Dict[str, Any]] = extraction.get("intermediate_streams") or []
-    product_streams: List[Dict[str, Any]] = extraction.get("product_streams") or []
+    units: list[dict[str, Any]] = extraction.get("units") or []
+    feed_streams: list[dict[str, Any]] = extraction.get("feed_streams") or []
+    intermediate_streams: list[dict[str, Any]] = (
+        extraction.get("intermediate_streams") or []
+    )
+    product_streams: list[dict[str, Any]] = extraction.get("product_streams") or []
 
-    unit_by_id: Dict[str, Dict[str, Any]] = {
+    unit_by_id: dict[str, dict[str, Any]] = {
         unit.get("id"): unit
         for unit in units
         if isinstance(unit, dict) and unit.get("id")
     }
 
-    inbound_streams_by_unit: Dict[str, List[Dict[str, Any]]] = {}
+    inbound_streams_by_unit: dict[str, list[dict[str, Any]]] = {}
 
-    def add_inbound_stream(to_unit: Any, stream: Dict[str, Any]) -> None:
+    def add_inbound_stream(to_unit: Any, stream: dict[str, Any]) -> None:
         if isinstance(to_unit, str) and to_unit.strip():
             inbound_streams_by_unit.setdefault(to_unit, []).append(stream)
 
@@ -66,7 +69,7 @@ def normalize_mixing_points(extraction: Optional[Dict[str, Any]]) -> Dict[str, A
         if isinstance(stream, dict):
             add_inbound_stream(stream.get("to_unit"), stream)
 
-    existing_stream_ids: Set[str] = {
+    existing_stream_ids: set[str] = {
         stream.get("id")
         for stream in (feed_streams + intermediate_streams + product_streams)
         if isinstance(stream, dict) and stream.get("id")
@@ -115,19 +118,22 @@ def normalize_mixing_points(extraction: Optional[Dict[str, Any]]) -> Dict[str, A
                 mixer_index = next(
                     index
                     for index, existing_unit in enumerate(units)
-                    if isinstance(existing_unit, dict) and existing_unit.get("id") == mixer_id
+                    if isinstance(existing_unit, dict)
+                    and existing_unit.get("id") == mixer_id
                 )
                 unit_index = next(
                     index
                     for index, existing_unit in enumerate(units)
-                    if isinstance(existing_unit, dict) and existing_unit.get("id") == unit_id
+                    if isinstance(existing_unit, dict)
+                    and existing_unit.get("id") == unit_id
                 )
                 if mixer_index != unit_index - 1:
                     mixer_unit = units.pop(mixer_index)
                     unit_index = next(
                         index
                         for index, existing_unit in enumerate(units)
-                        if isinstance(existing_unit, dict) and existing_unit.get("id") == unit_id
+                        if isinstance(existing_unit, dict)
+                        and existing_unit.get("id") == unit_id
                     )
                     units.insert(unit_index, mixer_unit)
             except StopIteration:

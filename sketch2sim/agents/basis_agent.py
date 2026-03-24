@@ -1,17 +1,15 @@
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pydantic import BaseModel
-from langgraph.graph import StateGraph
-from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableLambda
-
+from langchain_ollama import ChatOllama
+from langgraph.graph import StateGraph
+from pydantic import BaseModel
 from RAG.rag_components import build_component_retriever
 from utils.logging_utils import log_prompt
-
 
 _STEP4_MARKER = r"# === Step 4: Add Unit Operations \(Agent 2\) ==="
 _CLEAN_SUFFIX = {"feed", "fresh", "batch", "raw"}
@@ -21,21 +19,27 @@ class BasisState(BaseModel):
     description: str
     template_path: str
     log_dir: str = "logs"
-    structure_json: Optional[str] = None
-    materials: Optional[List[str]] = None
-    python_code: Optional[str] = None
-    summary: Optional[str] = None
-    raw_output: Optional[str] = None
+    structure_json: str | None = None
+    materials: list[str] | None = None
+    python_code: str | None = None
+    summary: str | None = None
+    raw_output: str | None = None
 
 
 def _load_text(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as file:
+    with open(path, encoding="utf-8") as file:
         return file.read()
 
 
 def _extract_code(text: str) -> str:
-    matches = re.findall(r"```(?:python|py)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
-    return "\n\n".join(block.strip() for block in matches if block.strip()) if matches else text.strip()
+    matches = re.findall(
+        r"```(?:python|py)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE
+    )
+    return (
+        "\n\n".join(block.strip() for block in matches if block.strip())
+        if matches
+        else text.strip()
+    )
 
 
 def _clean_name(name: str) -> str:
@@ -50,14 +54,14 @@ def _clean_name(name: str) -> str:
     return " ".join(tokens)
 
 
-def _extract_materials(structure_json: Any) -> List[str]:
+def _extract_materials(structure_json: Any) -> list[str]:
     try:
         if isinstance(structure_json, dict):
             data = structure_json
         elif isinstance(structure_json, str):
             text = structure_json.strip()
             if os.path.exists(text):
-                with open(text, "r", encoding="utf-8") as file:
+                with open(text, encoding="utf-8") as file:
                     data = json.load(file)
             else:
                 data = json.loads(text)
@@ -82,7 +86,7 @@ def _extract_materials(structure_json: Any) -> List[str]:
     return unique_materials
 
 
-def _build_knowledge_base(materials: List[str]) -> str:
+def _build_knowledge_base(materials: list[str]) -> str:
     if not materials:
         return ""
 
@@ -141,7 +145,9 @@ def _system_prompt() -> str:
     )
 
 
-def _user_prompt(description: str, template: str, materials: List[str], knowledge_base: str) -> str:
+def _user_prompt(
+    description: str, template: str, materials: list[str], knowledge_base: str
+) -> str:
     material_lines = "\n".join(f"- {material}" for material in materials)
 
     return (
@@ -155,9 +161,11 @@ def _user_prompt(description: str, template: str, materials: List[str], knowledg
     )
 
 
-def generate_basis_script(state: BasisState, model_name: str) -> Dict[str, Any]:
+def generate_basis_script(state: BasisState, model_name: str) -> dict[str, Any]:
     template = _load_text(state.template_path)
-    materials = state.materials or (_extract_materials(state.structure_json) if state.structure_json else [])
+    materials = state.materials or (
+        _extract_materials(state.structure_json) if state.structure_json else []
+    )
     knowledge_base = _build_knowledge_base(materials)
 
     system_prompt = _system_prompt()

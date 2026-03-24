@@ -3,7 +3,6 @@ import re
 
 from win32com.client import Dispatch
 
-
 # === Step 1: Launch HYSYS and create a new case (Agent 1) ===
 case_name = "FILL_CASE_NAME"  # Basis Agent must fill
 hysys = Dispatch("HYSYS.Application")

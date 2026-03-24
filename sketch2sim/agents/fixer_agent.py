@@ -1,11 +1,9 @@
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Optional, Union
 
 from langchain_ollama import ChatOllama
-
 from utils.agent_utils import read_text_file
 from utils.logging_utils import log_text
-
 
 FIXER_SYSTEM_PROMPT = """
 You are a code-fixing agent.
@@ -128,14 +126,14 @@ def fix_code_text(
 
 def fix_code_file(
     *,
-    code_path: Union[str, Path],
+    code_path: str | Path,
     unit_view_json_str: str,
     validator_issues: str,
     model_name: str = "qwen2.5-coder:latest",
     temperature: float = 0.0,
-    log_dir: Optional[Union[str, Path]] = None,
-    instantiation_instruction_paths: Iterable[Union[str, Path]],
-    configuration_instruction_paths: Iterable[Union[str, Path]],
+    log_dir: str | Path | None = None,
+    instantiation_instruction_paths: Iterable[str | Path],
+    configuration_instruction_paths: Iterable[str | Path],
 ) -> Path:
     instantiation_instructions_text = "\n\n".join(
         read_text_file(str(path)) for path in instantiation_instruction_paths

@@ -1,14 +1,13 @@
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pydantic import BaseModel
-from langgraph.graph import StateGraph
-from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableLambda
-
+from langchain_ollama import ChatOllama
+from langgraph.graph import StateGraph
+from pydantic import BaseModel
 
 _STEP4_MARKER = "# === Step 4: Add Unit Operations (Agent 2) ==="
 _STEP6_MARKER = "# === Step 6: Connect Streams (Agent 3) ==="
@@ -17,16 +16,16 @@ _STEP6_MARKER = "# === Step 6: Connect Streams (Agent 3) ==="
 class InstantiationState(BaseModel):
     description: str
     basis_path: str
-    instruction_paths: List[str]
-    python_code: Optional[str] = None
-    summary: Optional[str] = None
-    output_path: Optional[str] = None
-    prompt_debug: Optional[str] = None
-    raw_output: Optional[str] = None
+    instruction_paths: list[str]
+    python_code: str | None = None
+    summary: str | None = None
+    output_path: str | None = None
+    prompt_debug: str | None = None
+    raw_output: str | None = None
 
 
 def _load_text(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as file:
+    with open(path, encoding="utf-8") as file:
         return file.read()
 
 
@@ -37,11 +36,11 @@ def _load_json_text(maybe_path_or_json: str) -> str:
     return text
 
 
-def _load_instructions(paths: List[str]) -> str:
+def _load_instructions(paths: list[str]) -> str:
     if not paths:
         return ""
 
-    parts: List[str] = []
+    parts: list[str] = []
     for path in paths:
         if path and os.path.exists(path):
             parts.append(_load_text(path).strip())
@@ -52,8 +51,14 @@ def _load_instructions(paths: List[str]) -> str:
 
 
 def _extract_code(text: str) -> str:
-    blocks = re.findall(r"```(?:python|py)?\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE)
-    return "\n\n".join(block.strip() for block in blocks if block.strip()) if blocks else text.strip()
+    blocks = re.findall(
+        r"```(?:python|py)?\s*(.*?)```", text, flags=re.DOTALL | re.IGNORECASE
+    )
+    return (
+        "\n\n".join(block.strip() for block in blocks if block.strip())
+        if blocks
+        else text.strip()
+    )
 
 
 def _extract_steps_4_to_5_only(text: str) -> str:
@@ -64,15 +69,21 @@ def _extract_steps_4_to_5_only(text: str) -> str:
     )
     match = re.search(pattern, text)
     if not match:
-        raise ValueError(
-            "Could not extract Step 4–5 block from Instantiation output."
-        )
+        raise ValueError("Could not extract Step 4–5 block from Instantiation output.")
 
     block = match.group(1).strip()
 
-    for bad_marker in ("# === Step 1:", "# === Step 2:", "# === Step 3:", "# === Step 6:", "# === Step 7:"):
+    for bad_marker in (
+        "# === Step 1:",
+        "# === Step 2:",
+        "# === Step 3:",
+        "# === Step 6:",
+        "# === Step 7:",
+    ):
         if bad_marker in block:
-            raise ValueError(f"Extracted Step 4–5 block still contains out-of-scope marker: {bad_marker}")
+            raise ValueError(
+                f"Extracted Step 4–5 block still contains out-of-scope marker: {bad_marker}"
+            )
 
     return block
 
@@ -117,11 +128,15 @@ def _replace_steps_4_to_5(basis_code: str, step_4_to_5_code: str) -> str:
     if not re.search(pattern, basis_code):
         raise ValueError("Could not find Step 4–5 block markers in Basis code.")
 
-    replacement = step_4_to_5_code.rstrip() + "\n\n# === Step 6: Connect Streams (Agent 3) ==="
+    replacement = (
+        step_4_to_5_code.rstrip() + "\n\n# === Step 6: Connect Streams (Agent 3) ==="
+    )
     return re.sub(pattern, lambda _: replacement, basis_code, count=1)
 
 
-def generate_instantiation_script(state: InstantiationState, model_name: str) -> Dict[str, Any]:
+def generate_instantiation_script(
+    state: InstantiationState, model_name: str
+) -> dict[str, Any]:
     llm = ChatOllama(
         model=model_name,
         temperature=0,

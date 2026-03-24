@@ -1,11 +1,11 @@
-from typing import Any, Dict, List
+from typing import Any
 
 
-def build_unit_view_from_structure(extraction: Dict[str, Any]) -> Dict[str, Any]:
+def build_unit_view_from_structure(extraction: dict[str, Any]) -> dict[str, Any]:
     """
     Convert structure JSON into a unit-centric input/output stream view.
     """
-    units: List[Dict[str, Any]] = extraction.get("units", []) or []
+    units: list[dict[str, Any]] = extraction.get("units", []) or []
 
     def build_stream(
         stream_id,
@@ -24,7 +24,7 @@ def build_unit_view_from_structure(extraction: Dict[str, Any]) -> Dict[str, Any]
             "connect_point": connect_point,
         }
 
-    all_streams: List[Dict[str, Any]] = []
+    all_streams: list[dict[str, Any]] = []
 
     for stream in extraction.get("feed_streams", []) or []:
         all_streams.append(
@@ -62,7 +62,7 @@ def build_unit_view_from_structure(extraction: Dict[str, Any]) -> Dict[str, Any]
             )
         )
 
-    unit_view_units: List[Dict[str, Any]] = []
+    unit_view_units: list[dict[str, Any]] = []
     for unit in units:
         unit_id = unit.get("id")
         if not unit_id:

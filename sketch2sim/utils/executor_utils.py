@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from utils.agent_utils import invoke_graph
 from utils.logging_utils import (
@@ -15,7 +15,7 @@ def execute_and_log(
     executor_state,
     log_dir: str,
     log_prefix: str,
-) -> Tuple[Dict[str, Any], str, str]:
+) -> tuple[dict[str, Any], str, str]:
     """
     Execute and log summary/stderr.
 
@@ -34,8 +34,8 @@ def merge_execute_and_log(
     executor_state,
     log_dir: str,
     log_prefix: str,
-    merge_kwargs: Dict[str, Any],
-) -> Tuple[Dict[str, Any], str, str]:
+    merge_kwargs: dict[str, Any],
+) -> tuple[dict[str, Any], str, str]:
     """
     Merge, execute, and log summary/stderr.
 

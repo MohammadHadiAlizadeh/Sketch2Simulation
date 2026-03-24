@@ -2,14 +2,12 @@ import base64
 import io
 import json
 import os
-from typing import Optional
 
 import requests
+from langchain_core.runnables import RunnableLambda
+from langgraph.graph import StateGraph
 from PIL import Image
 from pydantic import BaseModel
-from langgraph.graph import StateGraph
-from langchain_core.runnables import RunnableLambda
-
 
 MAX_IMAGE_WIDTH = int(os.getenv("DESCRIPTOR_MAX_IMAGE_WIDTH", "2048"))
 DESCRIPTOR_NUM_PREDICT = int(os.getenv("DESCRIPTOR_NUM_PREDICT", "5000"))
@@ -20,7 +18,7 @@ OLLAMA_CLOUD_HOST = os.getenv("OLLAMA_CLOUD_HOST", "http://localhost:11434")
 
 class DescriptorState(BaseModel):
     image_path: str
-    description: Optional[str] = None
+    description: str | None = None
 
 
 def _encode_image_to_jpeg_b64(image_path: str) -> str:
@@ -56,7 +54,7 @@ def _build_prompt() -> str:
 def call_ollama_cloud(model_name: str, prompt: str, image_b64: str) -> str:
     api_key = os.getenv("OLLAMA_API_KEY", "").strip()
     if not api_key:
-        raise EnvironmentError("OLLAMA_API_KEY is not set.")
+        raise OSError("OLLAMA_API_KEY is not set.")
 
     payload = {
         "model": model_name,

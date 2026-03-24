@@ -1,21 +1,22 @@
 import json
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
 import requests
-from pydantic import BaseModel, Field
-from langgraph.graph import StateGraph
 from langchain_core.runnables import RunnableLambda
-
+from langgraph.graph import StateGraph
+from pydantic import BaseModel, Field
 
 DESCRIPTION_VALIDATOR_TIMEOUT = int(os.getenv("DESCRIPTION_VALIDATOR_TIMEOUT", "900"))
 OLLAMA_CLOUD_HOST = os.getenv("OLLAMA_CLOUD_HOST", "http://localhost:11434")
 
 
 class DescriptionValidatorState(BaseModel):
-    description: str = Field(..., description="Raw description produced by the descriptor agent.")
-    validation: Optional[Dict[str, Any]] = None
+    description: str = Field(
+        ..., description="Raw description produced by the descriptor agent."
+    )
+    validation: dict[str, Any] | None = None
 
 
 DESCRIPTION_VALIDATOR_SYSTEM_PROMPT = """
@@ -54,7 +55,7 @@ Rules:
 """
 
 
-def _safe_json_loads(text: str) -> Dict[str, Any]:
+def _safe_json_loads(text: str) -> dict[str, Any]:
     cleaned = (text or "").strip()
     cleaned = cleaned.replace("```json", "").replace("```", "").strip()
 
@@ -66,7 +67,12 @@ def _safe_json_loads(text: str) -> Dict[str, Any]:
     except Exception:
         return {
             "status": "invalid",
-            "issues": [{"type": "malformed_json", "message": "Validator did not return valid JSON."}],
+            "issues": [
+                {
+                    "type": "malformed_json",
+                    "message": "Validator did not return valid JSON.",
+                }
+            ],
             "suggested_fix_mode": "regenerate",
             "short_feedback_for_upstream_model": "Validator output was malformed JSON; regenerate the description.",
             "cleaned_description": "",
@@ -90,10 +96,12 @@ def _safe_json_loads(text: str) -> Dict[str, Any]:
     return data
 
 
-def run_description_validator(state: DescriptionValidatorState, model_name: str) -> Dict[str, Any]:
+def run_description_validator(
+    state: DescriptionValidatorState, model_name: str
+) -> dict[str, Any]:
     api_key = os.getenv("OLLAMA_API_KEY", "").strip()
     if not api_key:
-        raise EnvironmentError("OLLAMA_API_KEY is not set.")
+        raise OSError("OLLAMA_API_KEY is not set.")
 
     payload = {
         "model": model_name,
@@ -143,7 +151,9 @@ def build_description_validator_graph(model_name: str):
     graph = StateGraph(DescriptionValidatorState)
     graph.add_node(
         "description_validator",
-        RunnableLambda(lambda state: run_description_validator(state, model_name=model_name)),
+        RunnableLambda(
+            lambda state: run_description_validator(state, model_name=model_name)
+        ),
     )
     graph.set_entry_point("description_validator")
     graph.set_finish_point("description_validator")

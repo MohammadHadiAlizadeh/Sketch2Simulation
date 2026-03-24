@@ -1,7 +1,8 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any
+
 
 def write_stage_file(code: str, prefix: str, output_dir: str) -> str:
     os.makedirs(output_dir, exist_ok=True)
@@ -12,7 +13,7 @@ def write_stage_file(code: str, prefix: str, output_dir: str) -> str:
     return path
 
 
-def invoke_graph(graph, state) -> Dict[str, Any]:
+def invoke_graph(graph, state) -> dict[str, Any]:
     output = graph.invoke(state)
     if isinstance(output, dict):
         return output
@@ -21,12 +22,12 @@ def invoke_graph(graph, state) -> Dict[str, Any]:
     return output.__dict__
 
 
-def run_step(label: str, graph, state) -> Dict[str, Any]:
+def run_step(label: str, graph, state) -> dict[str, Any]:
     print(f"\n{label}")
     return invoke_graph(graph, state)
 
 
-def agent_fields(output: dict) -> Tuple[str, str, str]:
+def agent_fields(output: dict) -> tuple[str, str, str]:
     return (
         output.get("python_code", "") or "",
         output.get("raw_output", "") or "",

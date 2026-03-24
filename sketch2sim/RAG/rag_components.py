@@ -1,6 +1,5 @@
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import pandas as pd
 from langchain_community.vectorstores import Chroma
@@ -8,7 +7,7 @@ from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 
 
-def load_pure_component_docs_from_excel(excel_path: str | Path) -> List[Document]:
+def load_pure_component_docs_from_excel(excel_path: str | Path) -> list[Document]:
     excel_path = Path(excel_path)
     if not excel_path.exists():
         raise FileNotFoundError(f"Excel file not found: {excel_path}")
@@ -20,7 +19,7 @@ def load_pure_component_docs_from_excel(excel_path: str | Path) -> List[Document
     if missing:
         raise ValueError(f"components_list.xlsx is missing required columns: {missing}")
 
-    docs: List[Document] = []
+    docs: list[Document] = []
 
     for _, row in df.iterrows():
         name = str(row["component_name"]).strip()
@@ -50,7 +49,7 @@ def load_pure_component_docs_from_excel(excel_path: str | Path) -> List[Document
     return docs
 
 
-def load_mixture_recipe_docs(txt_path: str | Path) -> List[Document]:
+def load_mixture_recipe_docs(txt_path: str | Path) -> list[Document]:
     txt_path = Path(txt_path)
     if not txt_path.exists():
         raise FileNotFoundError(f"Mixture recipe file not found: {txt_path}")
@@ -63,7 +62,7 @@ def load_mixture_recipe_docs(txt_path: str | Path) -> List[Document]:
         if block.strip()
     ]
 
-    docs: List[Document] = []
+    docs: list[Document] = []
     for block in blocks:
         mixture_name = None
         for line in block.splitlines():
@@ -92,9 +91,9 @@ class ExactThenVectorRetriever:
     2. Fall back to vector retrieval if no exact hit
     """
 
-    def __init__(self, vector_retriever, docs: List[Document]):
+    def __init__(self, vector_retriever, docs: list[Document]):
         self.vector_retriever = vector_retriever
-        self._exact_index: Dict[str, List[Document]] = {}
+        self._exact_index: dict[str, list[Document]] = {}
         self._build_exact_index(docs)
 
     @staticmethod
@@ -106,7 +105,7 @@ class ExactThenVectorRetriever:
         match = re.search(rf"(?im)^\s*{re.escape(field)}\s*:\s*(.+?)\s*$", text or "")
         return match.group(1).strip() if match else ""
 
-    def _aliases(self, text: str) -> List[str]:
+    def _aliases(self, text: str) -> list[str]:
         aliases = self._field(text, "Aliases")
         if not aliases:
             return []
@@ -118,7 +117,7 @@ class ExactThenVectorRetriever:
             return
         self._exact_index.setdefault(normalized_key, []).append(doc)
 
-    def _build_exact_index(self, docs: List[Document]) -> None:
+    def _build_exact_index(self, docs: list[Document]) -> None:
         for doc in docs:
             text = doc.page_content or ""
             self._add_key(self._field(text, "HYSYS_name"), doc)
@@ -129,9 +128,9 @@ class ExactThenVectorRetriever:
                 self._add_key(alias, doc)
 
     @staticmethod
-    def _dedupe_keep_order(docs: List[Document]) -> List[Document]:
+    def _dedupe_keep_order(docs: list[Document]) -> list[Document]:
         seen = set()
-        unique_docs: List[Document] = []
+        unique_docs: list[Document] = []
 
         for doc in docs:
             key = (doc.page_content or "").strip()
@@ -142,10 +141,12 @@ class ExactThenVectorRetriever:
 
         return unique_docs
 
-    def invoke(self, query: str, **kwargs) -> List[Document]:
+    def invoke(self, query: str, **kwargs) -> list[Document]:
         normalized_query = self._norm(query)
 
-        exact_matches = self._exact_index.get(normalized_query, []) if normalized_query else []
+        exact_matches = (
+            self._exact_index.get(normalized_query, []) if normalized_query else []
+        )
         if exact_matches:
             vector_matches = self.vector_retriever.invoke(query, **kwargs) or []
             return self._dedupe_keep_order(exact_matches + vector_matches)
@@ -157,7 +158,7 @@ class ExactThenVectorRetriever:
 def build_component_retriever(
     excel_path: str | Path = "RAG/components_list.xlsx",
     mixture_path: str | Path = "RAG/mixture_recipes.txt",
-    persist_dir: Optional[str] = "RAG/chroma_components",
+    persist_dir: str | None = "RAG/chroma_components",
 ):
     excel_path = Path(excel_path)
     mixture_path = Path(mixture_path)

@@ -59,7 +59,9 @@ def log_agent_step(
         log_text(log_dir, f"{step}_prompt_debug.txt", prompt)
 
 
-def log_executor_result(log_dir: str, prefix: str, exec_result: dict) -> tuple[str, str]:
+def log_executor_result(
+    log_dir: str, prefix: str, exec_result: dict
+) -> tuple[str, str]:
     summary = exec_result.get("result_summary", "") or ""
     stderr = exec_result.get("stderr", "") or ""
 

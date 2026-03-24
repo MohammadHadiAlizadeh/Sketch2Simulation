@@ -1,20 +1,20 @@
 import os
 import subprocess
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
-from pydantic import BaseModel
-from langgraph.graph import StateGraph
 from langchain_core.runnables import RunnableLambda
+from langgraph.graph import StateGraph
+from pydantic import BaseModel
 
 
 class ExecutorState(BaseModel):
     code_path: str
     log_dir: str = "logs"
-    result_summary: Optional[str] = None
+    result_summary: str | None = None
 
 
-def run_executor(state: ExecutorState) -> Dict[str, Any]:
+def run_executor(state: ExecutorState) -> dict[str, Any]:
     os.makedirs(state.log_dir, exist_ok=True)
 
     if not os.path.exists(state.code_path):

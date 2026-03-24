@@ -1,8 +1,7 @@
 import copy
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import Any
 
 _ALLOWED_CONNECT_POINTS = {"overhead", "bottom", "side", "unknown"}
 
@@ -25,8 +24,10 @@ class Edge:
 
 
 def _collect_edges(
-    extraction: Dict[str, Any],
-) -> Tuple[List[Edge], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    extraction: dict[str, Any],
+) -> tuple[
+    list[Edge], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]
+]:
     intermediate_streams = extraction.get("intermediate_streams", []) or []
     edges = [
         Edge(
@@ -46,21 +47,25 @@ def _collect_edges(
     )
 
 
-def _outgoing(edges: List[Edge]) -> Dict[str, List[Edge]]:
-    outgoing_edges: Dict[str, List[Edge]] = {}
+def _outgoing(edges: list[Edge]) -> dict[str, list[Edge]]:
+    outgoing_edges: dict[str, list[Edge]] = {}
     for edge in edges:
         outgoing_edges.setdefault(edge.from_unit, []).append(edge)
     return outgoing_edges
 
 
-def _has_edge(edges: List[Edge], from_unit: str, to_unit: str) -> Optional[Edge]:
+def _has_edge(edges: list[Edge], from_unit: str, to_unit: str) -> Edge | None:
     return next(
-        (edge for edge in edges if edge.from_unit == from_unit and edge.to_unit == to_unit),
+        (
+            edge
+            for edge in edges
+            if edge.from_unit == from_unit and edge.to_unit == to_unit
+        ),
         None,
     )
 
 
-def prune_orphaned_units(extraction: Dict[str, Any]) -> Dict[str, Any]:
+def prune_orphaned_units(extraction: dict[str, Any]) -> dict[str, Any]:
     """Remove units that are not referenced by any feed, intermediate, or product stream."""
     connected_unit_ids = set()
 
@@ -83,7 +88,7 @@ def prune_orphaned_units(extraction: Dict[str, Any]) -> Dict[str, Any]:
     return extraction
 
 
-def identify_column_candidates(extraction: Dict[str, Any]) -> List[str]:
+def identify_column_candidates(extraction: dict[str, Any]) -> list[str]:
     """Identify distillation-column-like units from their names."""
     units = extraction.get("units", []) or []
     return [
@@ -97,9 +102,9 @@ def identify_column_candidates(extraction: Dict[str, Any]) -> List[str]:
 
 
 def find_integrated_attachments(
-    extraction: Dict[str, Any],
-    column_ids: List[str],
-) -> Dict[str, Dict[str, Any]]:
+    extraction: dict[str, Any],
+    column_ids: list[str],
+) -> dict[str, dict[str, Any]]:
     """
     Detect equipment that should be integrated into distillation columns.
 
@@ -116,10 +121,10 @@ def find_integrated_attachments(
         for unit in extraction.get("units", []) or []
     }
 
-    def edge_between(from_unit: str, to_unit: str) -> Optional[Edge]:
+    def edge_between(from_unit: str, to_unit: str) -> Edge | None:
         return _has_edge(edges, from_unit, to_unit)
 
-    def unit_name_contains(unit_id: str, keywords: List[str]) -> bool:
+    def unit_name_contains(unit_id: str, keywords: list[str]) -> bool:
         normalized_name = _normalize_text(unit_names.get(unit_id, ""))
         return any(keyword in normalized_name for keyword in keywords)
 
@@ -129,24 +134,26 @@ def find_integrated_attachments(
             for keyword in ["column", "tower", "distillation"]
         )
 
-    attachments: Dict[str, Dict[str, Any]] = {}
+    attachments: dict[str, dict[str, Any]] = {}
 
     for column_id in column_ids:
-        overrides: Dict[str, Any] = {}
-        skip_unit_ids: List[str] = []
+        overrides: dict[str, Any] = {}
+        skip_unit_ids: list[str] = []
 
         if not is_distillation_unit(column_id):
             attachments[column_id] = {"overrides": {"skip_unit_ids": []}}
             continue
 
-        condenser_id: Optional[str] = None
-        reboiler_id: Optional[str] = None
-        condenser_edge: Optional[Edge] = None
-        reboiler_edge: Optional[Edge] = None
+        condenser_id: str | None = None
+        reboiler_id: str | None = None
+        condenser_edge: Edge | None = None
+        reboiler_edge: Edge | None = None
 
         for edge in outgoing_edges.get(column_id, []):
             destination_id = edge.to_unit
-            if condenser_id is None and unit_name_contains(destination_id, ["condenser"]):
+            if condenser_id is None and unit_name_contains(
+                destination_id, ["condenser"]
+            ):
                 condenser_id, condenser_edge = destination_id, edge
             if reboiler_id is None and unit_name_contains(destination_id, ["reboiler"]):
                 reboiler_id, reboiler_edge = destination_id, edge
@@ -159,11 +166,11 @@ def find_integrated_attachments(
             skip_unit_ids.append(reboiler_id)
 
         if condenser_id and condenser_edge:
-            drum_id: Optional[str] = None
-            pump_id: Optional[str] = None
-            drum_edge: Optional[Edge] = None
-            pump_edge: Optional[Edge] = None
-            reflux_return_edge: Optional[Edge] = None
+            drum_id: str | None = None
+            pump_id: str | None = None
+            drum_edge: Edge | None = None
+            pump_edge: Edge | None = None
+            reflux_return_edge: Edge | None = None
 
             for edge in outgoing_edges.get(condenser_id, []):
                 if unit_name_contains(edge.to_unit, ["drum", "reflux", "accumulator"]):
@@ -203,7 +210,9 @@ def find_integrated_attachments(
     return attachments
 
 
-def apply_coupling(extraction: Dict[str, Any], attachments: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def apply_coupling(
+    extraction: dict[str, Any], attachments: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
     """
     Remove skipped units, attach overrides to the owning columns, rewrite stream
     endpoints, and remove self-loops created by the rewrite.
@@ -252,7 +261,7 @@ def apply_coupling(extraction: Dict[str, Any], attachments: Dict[str, Dict[str, 
     return output
 
 
-def couple_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
+def couple_extraction(extraction: dict[str, Any]) -> dict[str, Any]:
     """Run the full coupling-normalization pipeline."""
     extraction = prune_orphaned_units(extraction)
     column_ids = identify_column_candidates(extraction)

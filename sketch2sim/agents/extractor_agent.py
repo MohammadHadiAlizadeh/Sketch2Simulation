@@ -1,12 +1,11 @@
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 import requests
-from pydantic import BaseModel
-from langgraph.graph import StateGraph
 from langchain_core.runnables import RunnableLambda
-
+from langgraph.graph import StateGraph
+from pydantic import BaseModel
 
 EXTRACTOR_TIMEOUT = int(os.getenv("EXTRACTOR_TIMEOUT", "900"))
 EXTRACTOR_NUM_CTX = int(os.getenv("EXTRACTOR_NUM_CTX", "21000"))
@@ -15,8 +14,8 @@ OLLAMA_CLOUD_HOST = os.getenv("OLLAMA_CLOUD_HOST", "http://localhost:11434")
 
 class ExtractorState(BaseModel):
     process_text: str
-    extraction: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    extraction: dict[str, Any] | None = None
+    error: str | None = None
 
 
 def _clean_json_text(text: str) -> str:
@@ -24,18 +23,18 @@ def _clean_json_text(text: str) -> str:
     start = cleaned.find("{")
     end = cleaned.rfind("}")
     if start != -1 and end != -1:
-        return cleaned[start:end + 1]
+        return cleaned[start : end + 1]
     return cleaned or "{}"
 
 
-def run_extractor(state: ExtractorState, model_name: str) -> Dict[str, Any]:
+def run_extractor(state: ExtractorState, model_name: str) -> dict[str, Any]:
     process_text = (state.process_text or "").strip()
     if not process_text:
         return {"extraction": None, "error": "No process_text provided."}
 
     api_key = os.getenv("OLLAMA_API_KEY", "").strip()
     if not api_key:
-        raise EnvironmentError("OLLAMA_API_KEY is not set.")
+        raise OSError("OLLAMA_API_KEY is not set.")
 
     system_prompt = (
         "You are a Process Engineering Assistant. Extract structured JSON from a chemical process description.\n\n"
