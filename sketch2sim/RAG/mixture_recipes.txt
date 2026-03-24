@@ -1,0 +1,136 @@
+========================================
+Type: pseudo_recipe
+Mixture_name: Crude Oil
+Description: Generic crude oil pseudo-component recipe.
+HYSYS_components:
+  - n-Heptane (0.25)
+  - n-Hexane (0.20)
+  - i-Pentane (0.15)
+  - n-Pentane (0.15)
+  - n-Butane (0.15)
+  - Toluene (0.07)
+  - Benzene (0.03)
+Notes: Use for generic crude feeds when no crude assay is provided.
+========================================
+
+========================================
+Type: pseudo_recipe
+Mixture_name: Jet Fuel
+Description: Generic jet fuel / kerosene-range mixture.
+Aliases:
+  - Jet fuel feed
+HYSYS_components:
+  - n-Decane (0.40)
+  - n-C11 (0.30)
+  - n-C12 (0.20)
+  - n-C13 (0.10)
+Notes: Use for jet fuel blends and kerosene cuts.
+========================================
+
+========================================
+Type: pseudo_recipe
+Mixture_name: Demulsifier Agent
+Description: Generic demulsifier chemical mixture.
+HYSYS_components:
+  - Nonylphenol (0.50)
+  - Tetraethyleneglycol (0.50)
+Notes: Represents a typical surfactant-based demulsifier.
+========================================
+
+========================================
+Type: pseudo_recipe
+Mixture_name: Fuel Oil
+Description: Generic heavy fuel oil mixture.
+HYSYS_components:
+  - n-C12 (0.20)
+  - n-C13 (0.25)
+  - n-C14 (0.25)
+  - n-C15 (0.30)
+Notes: Use for heavy fuel or residual oil streams.
+========================================
+
+========================================
+Type: pseudo_recipe
+Mixture_name: Caustic Solution
+Description: Generic caustic solution for desalting or treatment.
+Aliases:
+  - Fresh caustic batch
+  - Caustic batch
+HYSYS_components:
+  - Water (0.90)
+  - NaOH (0.10)
+Notes: Use for caustic wash streams (10% NaOH by mass fraction).
+========================================
+
+========================================
+Type: pseudo_recipe
+Mixture_name: Natural Gas (Sweet)
+Description: Generic sweet natural gas.
+HYSYS_components:
+  - Methane (0.85)
+  - Ethane (0.07)
+  - Propane (0.04)
+  - n-Butane (0.02)
+  - Nitrogen (0.02)
+Notes: Use when gas contains no significant H2S.
+========================================
+
+========================================
+Type: pseudo_recipe
+Mixture_name: Natural Gas (Sour)
+Description: Generic sour natural gas containing H2S and CO2.
+HYSYS_components:
+  - Methane (0.78)
+  - Ethane (0.06)
+  - Propane (0.04)
+  - Hydrogen Sulfide (0.06)
+  - Carbon Dioxide (0.06)
+Notes: Use for sour gas wells before treating.
+========================================
+
+========================================
+Type: pseudo_recipe
+Mixture_name: Naphtha
+Description: Generic straight-run naphtha mixture.
+HYSYS_components:
+  - n-Pentane (0.25)
+  - n-Hexane (0.25)
+  - n-Heptane (0.25)
+  - Toluene (0.25)
+Notes: Use for naphtha splitter or reformer feeds.
+========================================
+
+========================================
+Type: pseudo_recipe
+Mixture_name: Diesel Blend
+Description: Generic diesel-range hydrocarbon blend.
+HYSYS_components:
+  - n-Decane (0.30)
+  - n-C11 (0.30)
+  - n-C12 (0.25)
+  - n-C13 (0.15)
+Notes: Use for diesel product or diesel pool streams.
+========================================
+
+========================================
+Type: pseudo_recipe
+Mixture_name: Sour Water
+Description: Water contaminated with H2S and NH3.
+HYSYS_components:
+  - Water (0.85)
+  - Hydrogen Sulfide (0.10)
+  - Ammonia (0.05)
+Notes: Use for sour water stripper feeds.
+========================================
+
+========================================
+Type: pseudo_recipe
+Mixture_name: Compressed air
+Aliases:
+  - Air
+Description: Generic dry compressed air mixture.
+HYSYS_components:
+  - Nitrogen (0.79)
+  - Oxygen (0.21)
+Notes: Standard atmospheric composition; use Nitrogen/Oxygen only for simplified models.
+========================================
