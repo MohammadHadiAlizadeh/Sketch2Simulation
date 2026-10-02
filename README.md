@@ -76,20 +76,8 @@ pip install -r requirements.txt
 
 ### 2. Configure environment variables
 
-```bash
-export OLLAMA_API_KEY=your_api_key_here
-export OLLAMA_CLOUD_HOST=your_cloud_endpoint_here
+Set a DeepSeek API Key in your .env folder.
 
-# Optional — override defaults
-export DESCRIPTOR_MAX_IMAGE_WIDTH=2048
-export DESCRIPTOR_NUM_PREDICT=5000
-export DESCRIPTOR_NUM_CTX=21000
-export DESCRIPTOR_TIMEOUT=900
-export EXTRACTOR_TIMEOUT=900
-export EXTRACTOR_NUM_CTX=21000
-```
-
-Only `OLLAMA_API_KEY` is strictly required if the cloud endpoint is already configured in code.
 
 ### 3. Ensure Aspen HYSYS is available
 
