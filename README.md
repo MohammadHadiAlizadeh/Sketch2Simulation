@@ -64,8 +64,6 @@ Sketch2Simulation converts a process sketch image into an executable Aspen HYSYS
         └── hysys_template_base.py
 ```
 
-> **Note on instruction files:** Agent instruction files (`instantiation_instructions_*.txt`, `configuration_instructions_*.txt`) are required but not included in this repository — these contain proprietary prompt engineering for the HYSYS domain and must be sourced separately.
-
 ---
 
 ## Setup
@@ -99,7 +97,7 @@ A licensed installation of Aspen HYSYS must be present on the machine with COM a
 
 ### 4. Add the required instruction files
 
-Place `instantiation_instructions_*.txt` and `configuration_instructions_*.txt` in `sketch2sim/instructions/`. These files are not distributed with this repository (see note above).
+Place `instantiation_instructions_*.txt` and `configuration_instructions_*.txt` in `sketch2sim/instructions/`. These files are not distributed with the main repository, but I provided a simplistic instruction in this fork.
 
 ---
 
