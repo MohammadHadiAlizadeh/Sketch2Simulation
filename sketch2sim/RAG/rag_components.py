@@ -6,6 +6,10 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 
+# Default asset locations resolved relative to this module (i.e. the RAG
+# package folder), not the process CWD.
+_RAG_DIR = Path(__file__).resolve().parent
+
 
 def load_pure_component_docs_from_excel(excel_path: str | Path) -> list[Document]:
     excel_path = Path(excel_path)
@@ -156,9 +160,9 @@ class ExactThenVectorRetriever:
 
 
 def build_component_retriever(
-    excel_path: str | Path = "RAG/components_list.xlsx",
-    mixture_path: str | Path = "RAG/mixture_recipes.txt",
-    persist_dir: str | None = "RAG/chroma_components",
+    excel_path: str | Path = _RAG_DIR / "components_list.xlsx",
+    mixture_path: str | Path = _RAG_DIR / "mixture_recipes.txt",
+    persist_dir: str | None = _RAG_DIR / "chroma_components",
 ):
     excel_path = Path(excel_path)
     mixture_path = Path(mixture_path)
