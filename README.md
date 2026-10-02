@@ -4,7 +4,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Sketch2Simulation converts a process sketch image into an executable Aspen HYSYS Python script through a multi-agent pipeline.
+Sketch2Simulation converts a process sketch image into an executable Aspen HYSYS Python script through a multi-agent pipeline. DeepSeek Compatible version!
 
 > **Prerequisites:** This project requires a licensed installation of **Aspen HYSYS** with COM access enabled. Without a valid HYSYS licence the execution stage cannot run.
 
