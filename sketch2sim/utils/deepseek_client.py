@@ -51,7 +51,7 @@ def chat_text(
         ],
         temperature=temperature,
         max_tokens=max_tokens,
-        extra_body={"thinking": {"type": "disabled"}},
+         extra_body={"thinking": {"type": "disabled"}},
     )
     return (resp.choices[0].message.content or "").strip()
 
@@ -85,8 +85,8 @@ def chat_vision(
         ],
         temperature=temperature,
         max_tokens=max_tokens,
-        extra_body={"thinking": {"type": "enabled"},
-        "reasoning_effort": "max"},
+        extra_body={"thinking": {"type": "disabled"}},
+       # "reasoning_effort": "max"},
     )
     return (resp.choices[0].message.content or "").strip()
 
