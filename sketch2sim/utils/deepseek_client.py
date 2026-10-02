@@ -40,7 +40,7 @@ def chat_text(
     system: str,
     user: str,
     temperature: float = 0.0,
-    max_tokens: int = 8192,
+    max_tokens: int = 20000,
 ) -> str:
     client = get_client()
     resp = client.chat.completions.create(
@@ -63,7 +63,7 @@ def chat_vision(
     user_text: str,
     image_b64_jpeg: str,
     temperature: float = 0.0,
-    max_tokens: int = 8192,
+    max_tokens: int = 20000,
 ) -> str:
     client = get_client()
     resp = client.chat.completions.create(
@@ -85,7 +85,8 @@ def chat_vision(
         ],
         temperature=temperature,
         max_tokens=max_tokens,
-        extra_body={"thinking": {"type": "disabled"}},
+        extra_body={"thinking": {"type": "enabled"},
+        "reasoning_effort": "max"},
     )
     return (resp.choices[0].message.content or "").strip()
 
