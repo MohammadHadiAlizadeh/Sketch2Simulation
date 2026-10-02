@@ -7,13 +7,44 @@ from win32com.client import Dispatch
 case_name = "FILL_CASE_NAME"  # Basis Agent must fill
 hysys = Dispatch("HYSYS.Application")
 hysys.Visible = True
+
+# Close any existing case with the same name so the script is safe to re-run.
+try:
+    hysys.SimulationCases.Item(case_name).Close(False, "")
+except Exception:
+    pass
+
 case = hysys.SimulationCases.Add(case_name)
 case.Visible = True
 
 # === Step 2: Setup Property Package (Agent 1) ===
+# --------------------------------------------------------------------------
+# PROPERTY PACKAGE TOKEN - HARD CONSTRAINT (read before writing line below)
+# --------------------------------------------------------------------------
+# `PropertyPackageName` accepts ONLY the internal HYSYS tokens listed here.
+# It does NOT accept the display names printed in the HYSYS GUI.
+#
+#   VALID tokens - use exactly ONE of these, verbatim, spelled exactly:
+#       "SRK"        "PRSV"       "LKP"        "MBWR"
+#       "SourPR"     "SourSRK"    "NRTL"       "UNIQUAC"
+#       "Antoine"    "BraunK10"   "Wilson"     "VanLaar"     "Margules"
+#
+#   INVALID - these raise com_error -2147024809 (E_INVALIDARG) and abort the
+#   entire script on this line. NEVER emit any of them:
+#       "Peng-Robinson"  "PengRobinson"  "Peng Robinson"  "PR"  "PR78"
+#       "PR-BM"  "RK-Soave"  "RKS"  "RK"  "SRKKD"  "KabadiDanner"
+#       "Ideal"  "RaoultsLaw"  "ChaoSeader"  "GraysonStreed"  "ZJ"
+#       "LeeKeslerPlocker"  "PCSAFT"  "UNIFAC"  "ASME Steam"  "NBS Steam"
+#
+#   HOW TO CHOOSE (keep it simple - a valid token always beats a "better" one):
+#       hydrocarbon / crude oil / gas processing ....... "PRSV" (or "SRK")
+#       polar, aqueous, alcohol-rich, amine systems .... "NRTL"
+#       sour / acid-gas systems ........................ "SourPR" or "SourSRK"
+#       not sure ....................................... keep the default "SRK"
+# --------------------------------------------------------------------------
 hybasis = case.BasisManager
 fluidpkg = hybasis.FluidPackages.Add()
-fluidpkg.PropertyPackageName = "FILL_PROPERTY_PACKAGE"  # Basis Agent must fill
+fluidpkg.PropertyPackageName = "SRK"  # VALID TOKENS ONLY: SRK PRSV LKP MBWR SourPR SourSRK NRTL UNIQUAC Antoine BraunK10 Wilson VanLaar Margules - NEVER "Peng-Robinson"
 
 # === Step 3: Add Components ===
 components = [
@@ -49,7 +80,9 @@ streams = {}  # Instantiation Agent must fill and must follow the unit_streamnam
 # Connections must be grouped per unit.
 
 # === Step 7: Save Simulation ===
-base_dir = r""
+base_dir = os.path.dirname(os.path.abspath(__file__))
+if not os.path.isdir(base_dir):
+    base_dir = os.getcwd()
 
 safe_case_name = re.sub(r'[\\/*?:"<>|]', "_", case_name)
 save_filename = safe_case_name + ".hsc"

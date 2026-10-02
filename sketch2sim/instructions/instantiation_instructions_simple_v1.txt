@@ -1,0 +1,489 @@
+HYSYS SCRIPTING INSTRUCTIONS - INSTANTIATION (Agent 2, Steps 4 and 5)
+=====================================================================
+Verified against Aspen HYSYS V15 (41.0) over COM. Do not invent members,
+type strings, or port names. Everything below was observed to work.
+
+0. SCOPE
+--------
+You fill ONLY the region of the provided basis script that starts at
+
+    # === Step 4: Add Unit Operations (Agent 2) ===
+
+and stops immediately before
+
+    # === Step 6: Connect Streams (Agent 3) ===
+
+You must therefore emit, in this order:
+
+    1. the Step 4 marker line
+    2. the unit-creation code
+    3. the Step 5 marker line  ->  # === Step 5: Add Material Streams (Agent 2) ===
+    4. the stream-creation code
+
+`units = {}` and `streams = {}` already exist above your region. Reuse them.
+The basis script already created `hysys`, `case`, `hybasis`, `fluidpkg` and
+`flowsheet`. NEVER re-create them and NEVER touch Steps 1, 2, 3, 6 or 7.
+NEVER connect a stream to a unit here - that is the Configuration Agent's job.
+
+1. INPUT
+--------
+STRUCTURED_JSON has exactly these keys:
+
+    units                 : [ { id, name, tags[] } , ... ]
+    feed_streams          : [ { id, name, to_unit, connect_point } , ... ]
+    intermediate_streams  : [ { id, name, from_unit, to_unit, connect_point } , ... ]
+    product_streams       : [ { id, name, from_unit, connect_point } , ... ]
+
+`id` is the canonical identifier: use it verbatim as the Python dict key.
+`name` is only a human-readable label; prefer `id`. Never rename, merge,
+split, duplicate or invent an entry.
+
+1.1 IF THE INPUT IS NOT A STRUCTURE OBJECT - LOUD FAILURE, NEVER A GUESS
+-----------------------------------------------------------------------
+The text you receive under `STRUCTURED_JSON` is produced by the step above
+yours. It is normally the JSON object. It can be unusable in exactly two ways,
+and both of them mean "the sketch structure is not available to you":
+
+  * what you received is not JSON at all - it is a FILE PATH or a bare file
+    name such as `logs\step4B_coupled_structure.json`, or an empty string, or
+    an error message. (The upstream step writes this document to a file and
+    passes the file's path along. If that file was moved or deleted before
+    your step read it, the path arrives with nothing behind it.) You have no
+    filesystem access, so you cannot open it, and you must not try.
+  * it is a JSON object but carries no units - `{}`, or an object with no
+    usable `units` list. Nothing can be instantiated from that either.
+
+A usable object is recognisable by one test only: after optional leading
+whitespace it starts with `{`. Do not try to salvage a path, do not retype it
+as a file name, and above all do NOT fall back on the case name, on the
+component list of the basis script, or on your own knowledge of how such a
+plant is usually drawn.
+
+Inventing a flowsheet here is the most damaging thing this step can do, and it
+is silent: you pick plausible equipment, the Configuration Agent is handed a
+unit view whose ids you never used, every one of its lookups misses, the merged
+script dies with a `KeyError` or - worse - is "repaired" into a plant the
+sketch never showed, and the user is told the run succeeded.
+
+So when the input is unusable, emit exactly this and nothing else:
+
+    # === Step 4: Add Unit Operations (Agent 2) ===
+    units = {}
+
+    raise RuntimeError(
+        "STRUCTURED_JSON was not a usable structure object (received: "
+        "<the first 200 characters of what you were given, escaped so that "
+        "they stay on one line>). No unit was created. The upstream structure "
+        "document was missing or empty when this step ran - re-run the "
+        "pipeline; this script must not be repaired by hand."
+    )
+
+    # === Step 5: Add Material Streams (Agent 2) ===
+    streams = {}
+
+Keep the two marker lines and the two `{}` declarations exactly as written:
+the splice that places your block in the script looks for them. The `raise` is
+deliberate - it turns a missing input into a loud, visible failure instead of a
+silent, plausible, wrong flowsheet. This is the ONLY situation in which a
+`units` / `streams` pair may be left empty.
+
+Do not "make the run work" by emitting a partial flowsheet. Sections 4 and 5
+apply unchanged whenever the structure object IS usable.
+
+2. OBJECT MODEL (use exactly this)
+----------------------------------
+Create an operation:
+
+    op = flowsheet.Operations.Add("<DisplayName>", "<TypeString>")
+
+Create a material stream:
+
+    st = flowsheet.MaterialStreams.Add("<DisplayName>")
+
+Facts you must rely on:
+
+  * `Operations.Add(name, TypeString)` is the only supported creation call.
+    There is no `.Inlet`, `.Outlet`, `.Connect`, `.ConnectStream`, `.Attach`,
+    `.Link` or `.Add(<typename-only>)` on the flowsheet or on an operation.
+  * `Add` raises a COM error if that display name already exists in the
+    collection. Add exactly one object per JSON entry.
+  * HYSYS accepts spaces, `/`, `.`, commas and mixed case inside element
+    names, so you may use the JSON `id` unchanged. Only strip characters that
+    would break a Python string literal: double quote, backslash, tab,
+    carriage return, newline.
+  * The fluid package and components must already exist before units are
+    added - the basis step above your region has already done that.
+
+3. TYPE STRING TABLE (tags -> ordered candidates)
+-------------------------------------------------
+Decide the type from the unit's `tags` list, case-insensitively. Scan the ROWS
+of the table below from top to bottom and take the first row whose keywords
+appear in ANY of the unit's tags. The rows are ordered most-specific-first, so
+`["heat exchanger", "condenser"]` hits the heat-exchanger row while
+`["heater", "fired heater"]` hits the fired-heater row above it. Where a row
+lists several candidates, pass them ALL in that order: the first type HYSYS
+accepts wins, which makes the generated script self-healing.
+
+| tag keyword                                                        | Add candidates, in order          |
+|--------------------------------------------------------------------|-----------------------------------|
+| fired heater, fired-heater, furnace, reformer furnace,             | ["DynamicFiredHeaterOp"]          |
+|   process furnace, process heater, cracking furnace,               |                                   |
+|   pyrolysis furnace                                                |                                   |
+| pump                                                               | ["PumpOp"]                        |
+| compressor, blower                                                 | ["Compressor"]                    |
+| expander, turbine, turbo expander, turboexpander                   | ["ExpandOp"]                      |
+| valve, control valve, letdown                                      | ["ValveOp"]                       |
+| heater, reboiler, vaporizer, preheater duty                        | ["HeaterOp"]                      |
+| air cooler, aircooler, fin fan, fan cooler                         | ["AirCoolerOp"]                   |
+| cooler, water cooler, aftercooler, chiller                         | ["CoolerOp"]                      |
+| heat exchanger, exchanger, hex, hx, interchanger,                  | ["HeatExOp"]                      |
+|   preheater, pre-heater, economizer, condenser, steam generator    |                                   |
+| pipe, pipe segment, pipeline, piping, injection, dosing            | ["PipeSeg", "ValveOp"]            |
+| mixer, mixing, blend, blending, static mixer, combining            | ["MixerOp"]                       |
+| split, splitter, tee, branch, divider, stream divider              | ["TeeOp"]                         |
+| distillation, column, tower, fractionator, deethanizer,            | ["Distillation"]                  |
+|   debutanizer, stabilizer, rectifier, topping, splitter column     |                                   |
+| absorber, reboiled absorber, refluxed absorber, stripper,          | ["Absorber", "Distillation"]      |
+|   stripping, extractor, extraction                                 |                                   |
+| 3 phase separator, three phase separator, three-phase separator,   | ["sep3op", "flashtank", "TankOp"] |
+|   triphase separator, water boot, three product separator          |                                   |
+| 2 phase separator, two phase separator, flash, flash drum,         | ["flashtank", "TankOp"]           |
+|   flash tank, knockout, knockout drum, ko drum, knock-out,         |                                   |
+|   separator, settler, coalescer, decanter, desalter, boot,         |                                   |
+|   electrostatic separator, electrostatic coalescer, degasser,      |                                   |
+|   vapour-liquid separator, liquid-liquid separator, drum, vessel,  |                                   |
+|   accumulator, receiver, surge drum                                |                                   |
+| water wash, caustic wash, wash, washing, scrubbing, scrubber,      | ["flashtank", "TankOp"]           |
+|   water wash column, water wash vessel, prewash                    |                                   |
+| dryer, drying, desiccant, molecular sieve, salt bed, clay bed,     | ["flashtank", "TankOp"]           |
+|   guard bed, resin bed, fixed bed, adsorber, adsorption, polishing |                                   |
+| tank, storage tank, surge tank, day tank, storage                  | ["TankOp"]                        |
+| component splitter                                                 | ["FractOp", "TeeOp"]              |
+| cyclone, gas cyclone, hydrocyclone                                 | ["GasCycloneOp", "TankOp"]        |
+| conversion reactor                                                 | ["ConversionReactorOp"]           |
+| gibbs reactor                                                      | ["GibbsReactorOp"]                |
+| equilibrium reactor                                                | ["EquilibriumReactorOp"]          |
+| plug flow reactor, pfr, tubular reactor                            | ["PFReactorOp"]                   |
+| cstr, kinetic reactor, stirred tank reactor                        | ["KineticReactorOp"]              |
+| yield reactor, nonstoichiometric reactor                           | ["YieldReactorOp"]                |
+| reactor (no other qualifier)                                       | ["ConversionReactorOp"]           |
+| balance, material balance                                          | ["BalanceOp"]                     |
+| recycle, recirculation                                             | ["Recycle"]                       |
+| set, set point                                                     | ["SetOp"]                         |
+| adjust, controller, control                                        | ["Adjust"]                        |
+| spreadsheet                                                        | ["SpreadSheetOp"]                 |
+| (nothing matched)                                                  | ["TankOp"]                        |
+
+If a unit has several tags, e.g. `["valve", "mixer"]`, the ROW order decides,
+not the tag order: `valve` and `mixer` are both in the table, and whichever of
+those two rows appears higher wins. Do not add a tag to a unit's list to steer
+this - the tags come from the sketch, not from you.
+
+A tag that NAMES the equipment item outranks the id prefix and outranks the
+number of streams hanging off the unit. `C-101A/B Recycle Gas Compressor` has
+one inlet and two outlets (recycle loop + purge); it is still a `Compressor`,
+never a `TankOp`. `E-101 Feed Preheater` can briefly show three inlets before
+the mixing point is inserted; it is still a `HeatExOp`, never a `MixerOp`. So
+do not "simplify" a named exchanger, compressor, pump or column into a
+`TankOp` / `MixerOp` / `TeeOp` because of a port count you disagree with - the
+count is a sketch-reading artefact and the code corrects it downstream.
+
+`cooler`, `water cooler`, `aftercooler`, `chiller`, `air cooler` and
+`preheater` all end up as `HeatExOp` in HYSYS: a cooler is an exchanger with a
+cooling medium on one side, and `HeatExOp` is the class with verified
+`ShellSideFeed` / `ShellSideProduct` / `TubeSideFeed` / `TubeSideProduct`
+ports. Emit `AirCoolerOp` / `CoolerOp` only when you are confident the sketch
+shows an air-cooled or utility-cooled unit AND the unit is not a column
+overhead condenser.
+Synthetic units whose id starts with `MIXER_TO_` are auto-inserted combining
+points: treat them as normal units and use their tag (`mixer` -> ["MixerOp"]).
+
+The "(nothing matched)" row is a LAST RESORT only. `["TankOp"]` creates a
+generic HYSYS vessel, which is neutral: it can be configured later as a
+separator or a storage drum. Never fall back to `PipeSeg`, `MixerOp` or
+`TeeOp` for a unit that is not literally a pipe, a mixing point or a flow
+splitter - those change what the object IS, not just its symbol. Never fall
+back to `["TankOp"]` for a unit whose tags name a fired heater, a column or an
+absorber: those rows exist above and MUST win.
+
+WHY `flashtank` AND `sep3op`
+----------------------------
+HYSYS resolves the second argument of `Operations.Add` against its RUNTIME
+class registry, not against the palette labels. The palette label "Separator"
+(`SepOp`) is a display alias only and is NOT instantiable - it fails with
+E_FAIL and no source or description. The genuine classes are:
+
+| candidate you pass        | VisibleTypeName the flowsheet shows | products |
+|---------------------------|--------------------------------------|----------|
+| "flashtank"               | 'Separator'                          | 2        |
+| "sep3op"                  | '3 Phase Separator'                  | 3        |
+| "TankOp"                  | 'Tank'                               | 2        |
+
+All three expose the same ports: `Feeds`, `VapourProduct`, `LiquidProduct`,
+`HeavyLiquidProduct`. So `flashtank` is a strict improvement over `TankOp` for
+any separation duty: same connectivity, correct symbol, correct name. Only fall
+back to `TankOp` when the unit is genuinely a storage or surge vessel.
+
+WHY `DynamicFiredHeaterOp`
+--------------------------
+`"FiredHeaterOp"`, `"FiredHeater"` and `"Fired Heater"` are all PALETTE LABELS
+and all fail `Operations.Add`. The runtime class is `"DynamicFiredHeaterOp"`:
+
+| candidate you pass        | VisibleTypeName the flowsheet shows | TypeName                  |
+|---------------------------|--------------------------------------|---------------------------|
+| "DynamicFiredHeaterOp"    | 'Fired Heater'                       | 'dynamicfiredheaterop'    |
+
+A fired heater is a furnace with a radiant section, an optional convection
+section, its own fuel-gas stream and its own flue-gas product - it is NOT a
+`HeaterOp` (one `FeedStream`, one `ProductStream`) and NOT a `HeatExOp` (which
+would need a hot-side process stream that a fired heater does not have). If a
+sketch shows a fired heater, a process furnace or a cracking furnace, emit
+`"DynamicFiredHeaterOp"`.
+
+WHY `Distillation` AND NOT A SEPARATOR
+--------------------------------------
+`"Distillation"`, `"Absorber"`, `"ReboiledAbsorber"` and
+`"RefluxedAbsorber"` are genuine, first-class HYSYS operations:
+
+| candidate you pass        | VisibleTypeName the flowsheet shows |
+|---------------------------|--------------------------------------|
+| "Distillation"            | 'Distillation'                       |
+| "Absorber"                | 'Absorber'                           |
+| "ReboiledAbsorber"        | 'Reboiled Absorber'                  |
+| "RefluxedAbsorber"        | 'Refluxed Absorber'                  |
+
+(`"ShDistOp"` also creates a real 'Shortcut Column', but the Shortcut Column
+exposes no feeds, no products and no duties over COM at all. A unit created as
+one can never be wired into the flowsheet, so it is forbidden here.)
+
+A distillation column is not a `flashtank`: a separator has one equilibrium
+stage, a column has many, and the reproduction is judged on the unit symbols
+the flowsheet shows. Emit the column class. It needs one extra call before it
+can be wired - see `WHY A COLUMN NEEDS ONE EXTRA CALL` below - and the
+configuration document tells the configuration step how to make that call.
+
+INLET / OUTLET COUNT RULES
+--------------------------
+The table already knows every multi-port family, so in the normal case you do
+nothing but follow it. These rules exist only to rescue a unit whose chosen
+type cannot carry the topology it was given.
+
+  * NEVER re-type a unit on the strength of its stream count alone if the type
+    the table gave you is one of
+
+        TankOp, flashtank, sep3op, TeeOp, FractOp, BalanceOp, StreamCutterOp,
+        ConversionReactorOp, EquilibriumReactorOp, GibbsReactorOp,
+        PFReactorOp, KineticReactorOp, MixerOp, DynamicFiredHeaterOp,
+        Distillation, Absorber, ReboiledAbsorber, RefluxedAbsorber
+
+    Every one of these accepts several feeds and/or several products natively.
+    In particular a reactor with three feed streams is still a reactor - the
+    feeds are the reactants, not a mixing point. Do not turn it into a mixer
+    and do not turn it into a tank. A fired heater with a process feed plus a
+    fuel-gas feed is still a fired heater. A column with a feed plus a reflux
+    line is still a column.
+
+  * Two or more inlets on a unit whose type is single-inlet (PumpOp, ValveOp,
+    HeaterOp, CoolerOp, AirCoolerOp, Compressor, ExpandOp, PipeSeg, Recycle,
+    StreamCutterOp, YieldReactorOp) -> use ["MixerOp"]. A joining point must
+    collect its feeds.
+
+  * Two or more outlets on a unit whose type is single-outlet (PumpOp, ValveOp,
+    HeaterOp, CoolerOp, AirCoolerOp, Compressor, ExpandOp, PipeSeg, Recycle,
+    PFReactorOp, YieldReactorOp) -> use ["flashtank", "TankOp"]. Those types
+    expose one `ProductStream` port, so a second product assignment silently
+    DISPLACES the first and the unit ends up with only one product attached. A
+    separator with a vapour and a liquid product is exactly this case.
+
+3.1 TYPE STRINGS YOU MUST NEVER EMIT
+------------------------------------
+These are PALETTE LABELS or column-sub-flowsheet internals. This build's COM
+`Operations.Add` REJECTS the labels (E_FAIL / 0x80004005, with no source and no
+description) and the internals are created by the column itself
+(`ProductBlock_<n>`, tray objects) rather than by you:
+
+    SepOp, Separator, SeparatorOp, Separator2, Separator3, ThreePhaseSep,
+    3 Phase Separator, ThreePhaseSeparator, VesselOp, DrumOp,
+    ReboilerOp, ReactorOp, TraySection, ColumnOp, ColumnFlowsheet,
+    TotalCondenser, PartialCondenser, Condenser3Op, SelectorBlock,
+    PMUnitOp, MaterialStream, EnergyStream, ShDistOp
+
+Note what is NOT on that list: `Distillation`, `Absorber`, `ReboiledAbsorber`
+and `RefluxedAbsorber`. Those are real unit operations and are often the RIGHT
+answer. Never spend a candidate slot on a forbidden name above, and never spend
+one on `flashtank` when the unit is a distillation column or an absorber.
+
+(`ShDistOp` is on the forbidden list, even though it is a real operation: the
+Shortcut Column exposes no feeds, no products and no duties over COM at all, so
+a unit created as one can never be wired into a flowsheet. Always pick
+`Distillation`.)
+
+WHY A COLUMN NEEDS ONE EXTRA CALL
+---------------------------------
+A column passes `Operations.Add` and then reports `VisibleTypeName`
+'Distillation', but its inlet collection `ColumnFeeds` and its product
+properties (`TopVapourProduct`, `BtmLiquidProduct`, ...) stay unreachable until
+the operation has LOADED a column template. The load is one call that takes
+the template name:
+
+    T-100 = flowsheet.Operations.Add("T-100", "Distillation")
+    T-100.LoadColumnTemplate("distil")   # loads Main Tower + Condenser + Reboiler
+
+`distil` is the `distil.col` template that ships with every HYSYS install, in
+`<install dir>\Template\`. After it loads, the column has four real, named,
+bindable product nozzles (`Q-Condenser`, `Ovhd Vapour`, `Distillate`, `Btms`)
+and a `ColumnFeeds` collection - verified on HYSYS V15 (41.0), build 150842.
+
+Do NOT use `CreateColumnTemplate()`: it produces a bare tower with seven
+unnamed placeholder slots, no condenser and no reboiler, and every product
+assigned to it is silently lost.
+
+That single `LoadColumnTemplate("distil")` call is emitted by the
+CONFIGURATION step, not by you - it needs the operation object, which only
+exists at run time. You only have to emit the right type; the configuration
+document carries the rest of the recipe (`ColumnFeeds.Add(...)`, the product
+properties and `ColumnFlowsheet.EnergyStreams.Add(...)`).
+
+4. STEP 4 - ADD UNIT OPERATIONS
+-------------------------------
+Your block REPLACES the entire Steps 4-5 region of the script you were given,
+so you must re-open the two registries that region holds. Emit, in this order:
+the Step 4 marker, then `units = {}`, then the helper exactly once, then one
+`units[...] = ...` statement per unit, in the same order as
+STRUCTURED_JSON.units:
+
+    # === Step 4: Add Unit Operations (Agent 2) ===
+    units = {}
+
+    def _add_operation(_fs, _name, _type_candidates):
+        _last_error = None
+        for _type_name in _type_candidates:
+            try:
+                return _fs.Operations.Add(_name, _type_name)
+            except Exception as _error:
+                _last_error = _error
+        raise _last_error
+
+    units["Crude oil pump"] = _add_operation(
+        flowsheet, "Crude oil pump", ["PumpOp"]
+    )
+    units["Electrostatic separator"] = _add_operation(
+        flowsheet, "Electrostatic separator", ["flashtank", "TankOp"]
+    )
+    units["Merox reactor"] = _add_operation(
+        flowsheet, "Merox reactor",
+        ["ConversionReactorOp", "KineticReactorOp", "GibbsReactorOp"],
+    )
+
+Rules:
+
+  * `units = {}` is mandatory even though the basis script shows it. The
+    markers and the dictionary line together are what the splice recognises;
+    without it every later `units[...]` fails with
+    `NameError: name 'units' is not defined`.
+  * One statement per unit. Never skip a unit and never add a unit that is not
+    in STRUCTURED_JSON.units.
+  * Pass the JSON `id` as both the dict key and the HYSYS display name.
+  * Pass the candidate list exactly as the type table gives it, as a Python
+    list of string literals, in order.
+  * Do NOT set any property on the operation object in this step. No duty, no
+    pressure drop, no temperatures, no specifications.
+  * Do NOT call `.Feeds`, `.Products`, `.Inlets`, `.OverheadOutlets`,
+    `.FeedStream`, `.ProductStream` or any other port. Ports are Step 6.
+
+5. STEP 5 - ADD MATERIAL STREAMS
+--------------------------------
+Start the section with the Step 5 marker and `streams = {}`, then emit one
+statement per stream, in this order:
+
+    # === Step 5: Add Material Streams (Agent 2) ===
+    streams = {}
+
+    1. every entry of feed_streams
+    2. every entry of intermediate_streams
+    3. every entry of product_streams
+
+using
+
+    streams["Crude oil feed"] = flowsheet.MaterialStreams.Add("Crude oil feed")
+    streams["Crude oil line"] = flowsheet.MaterialStreams.Add("Crude oil line")
+
+`streams = {}` is mandatory for the same reason as `units = {}`: the Step 6
+agent and the save step both read it, and without the declaration the script
+dies with `NameError: name 'streams' is not defined`.
+
+Rules:
+
+  * Exactly one stream object per JSON entry, across all three lists. The key
+    is the stream `id`.
+  * Do NOT follow a `<unit>_<role>` naming pattern. The JSON already carries
+    the final stream names, including synthetic ones such as
+    `"MIXER_TO_Fresh water pump"`. Use them verbatim. Three different streams
+    may legitimately carry three different names.
+  * Do NOT set Temperature, Pressure, MolarFlow, MassFlow, composition or any
+    other specification. STRUCTURED_JSON contains no stream conditions, so
+    every stream must stay unspecified.
+  * Do NOT reuse one stream object for two JSON entries and do NOT create
+    energy streams. `MaterialStreams.Add` creates a material stream only.
+
+6. RULES THAT PREVENT THE MOST COMMON FAILURES
+----------------------------------------------
+1. `Operations.Add` is `Add(name, TypeString)` - the type string is the second
+   argument. It never takes a third argument.
+2. One `Operations.Add` per unit, one `MaterialStreams.Add` per stream. Adding
+   a name that already exists raises a COM error.
+3. Do not touch `AttachedFeeds`, `AttachedProducts`, `UpstreamOpers` or
+   `DownstreamOpers`. They are read-only and belong to the connection step.
+4. Do not use `flowsheet.Operations` for streams or `flowsheet.MaterialStreams`
+   for units.
+5. Do not emit any `import` statement - `os`, `re` and `Dispatch` are already
+   imported above your region. Do not emit `feature(...)` or MATLAB syntax.
+6. Your block is spliced in place of the whole Steps 4-5 region of the script
+   you were given, so it must be self-contained: every line must be
+   individually valid Python at module level, indented with four spaces only
+   where a block requires it, and it must re-declare `units = {}` and
+   `streams = {}` itself.
+7. Never emit `# === Step 1:`, `# === Step 2:`, `# === Step 3:`,
+   `# === Step 6:` or `# === Step 7:` anywhere in your output.
+
+7. SAFETY CHECKS BEFORE RETURNING
+---------------------------------
+- `units = {}` appears immediately after the Step 4 marker.
+- `streams = {}` appears immediately after the Step 5 marker.
+- Take the list of `units[...]` keys you emitted and the list of
+  STRUCTURED_JSON.units `id` values, in order, and compare them entry by
+  entry: they must be identical - same entries, same order, same spelling,
+  same count. Do the same for the `streams[...]` keys against feed_streams +
+  intermediate_streams + product_streams. If the two lists differ by even one
+  entry you have invented, dropped or renamed something; fix it, do not return
+  it. These two key lists are the contract with the Configuration Agent.
+- Every name passed to HYSYS equals the JSON `id` verbatim.
+- Exactly one of these two states is true, never a mixture:
+    (i) the input was usable and you emitted one entry per unit and one entry
+        per stream, or
+    (ii) the input was unusable and you emitted the `raise` from section 1.1.
+- No port / connection code was emitted.
+- The Step 6 marker is NOT emitted by you.
+
+8. REQUIRED OUTPUT
+------------------
+Return exactly ONE Python code block and nothing else. It must begin with the
+Step 4 marker and stop immediately before the Step 6 marker:
+
+    # === Step 4: Add Unit Operations (Agent 2) ===
+    units = {}
+    def _add_operation(_fs, _name, _type_candidates):
+        ...
+    units["..."] = _add_operation(flowsheet, "...", ["..."])
+
+    # === Step 5: Add Material Streams (Agent 2) ===
+    streams = {}
+    streams["..."] = flowsheet.MaterialStreams.Add("...")
+    ...
+
+If STRUCTURED_JSON was unusable, the block is instead the short fragment given
+in section 1.1 - the same two markers, the same two `{}` declarations, and the
+`raise` between them, and nothing else.
+
+No prose, no explanations, no notes, no markdown other than the single code
+fence.

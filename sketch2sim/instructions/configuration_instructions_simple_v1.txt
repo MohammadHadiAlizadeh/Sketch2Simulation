@@ -1,0 +1,718 @@
+HYSYS SCRIPTING INSTRUCTIONS - CONFIGURATION (Agent 3, Step 6)
+==============================================================
+Verified against Aspen HYSYS V15 (41.0) over COM. The port names and call
+forms below are the ONLY ones that work. Do not invent members.
+
+0. SCOPE
+--------
+You fill ONLY the region of the provided (instantiation) script that starts at
+
+    # === Step 6: Connect Streams (Agent 3) ===
+
+and stops immediately before
+
+    # === Step 7: Save Simulation ===
+
+The script already declares and fills `flowsheet`, `units` and `streams` -
+Steps 4-5 open with `units = {}` and `streams = {}`. Reuse those objects
+exactly as they are. NEVER re-declare, re-create, clear or re-order them, and
+never delete their declaration lines if you restate the surrounding script.
+NEVER create a unit or a stream. NEVER touch Steps 1-5 or Step 7. NEVER
+introduce an object that is not already a key of `units` or `streams`.
+
+1. SOURCE OF TRUTH
+------------------
+`STRUCTURED_JSON` is:
+
+    { "units_unit_view": [ <unit object>, <unit object>, ... ] }
+
+It is a LIST, NOT a dict. Process the unit objects in list order. Each unit
+object is:
+
+    {
+      "unit_id":    "<id used as the key in `units`>",
+      "unit_name":  "<label, ignore for lookups>",
+      "streams_in":  [ {"id": "...", "name": "...", "role": "feed|intermediate|product",
+                        "from_unit": "...", "connect_point": "overhead|bottom|side|unknown"|null} ],
+      "streams_out": [ {"id": "...", "name": "...", "role": "feed|intermediate|product",
+                        "to_unit": "...",   "connect_point": "overhead|bottom|side|unknown"|null} ]
+    }
+
+Notes:
+  * The stream key is `id` (NOT `stream_name`). `name` is a second, usually
+    identical, label; if the two differ, always use `id`.
+  * `streams_in` entries carry `from_unit`, never `to_unit`.
+  * `streams_out` entries carry `to_unit`, never `from_unit`.
+  * `connect_point` may be null or absent. Treat missing/null as "unknown".
+  * Look objects up by id:  unit_obj = units["<unit_id>"]
+                            stream_obj = streams["<stream id>"]
+
+2. HARD RULES
+-------------
+1. Create a connection for every entry of every `streams_in` and `streams_out`.
+   Never skip one. Never create one that is not listed.
+2. Use each stream object EXACTLY ONCE, on the single unit that lists it. A
+   stream that is already attached to one operation CANNOT be attached to
+   another: reusing it raises E_INVALIDARG. Never do it.
+3. Inside one unit, assign ALL inlets first, then all outlets. HYSYS rejects an
+   outlet that is assigned before the unit's inlets have been set.
+4. Pass stream OBJECTS (`streams["..."]`), never their names as strings.
+   Passing a string raises a type-mismatch COM error.
+5. Never WRITE `AttachedFeeds`, `AttachedProducts`, `UpstreamOpers` or
+   `DownstreamOpers`. HYSYS updates them by itself. You MAY read them for
+   verification (`AttachedProducts.Names`, `FeedConnections.Names`) - reading
+   is harmless, assigning is not.
+6. Determine each unit's type from the Instantiation code you were given - the
+   type string passed to `Operations.Add` in Step 4 - then use the port names
+   for that type in the table below. Never guess a name from the unit's
+   label. Never use `.Inlet`, `.Outlet`, `.Inlets`, `.Outlets`, `.Connect`,
+   `.ConnectStream`, `.Attach` or `.Link`: none of them exist.
+7. Do not create energy streams and do not assign `EnergyStream`. The
+   structured data contains material streams only. The single exception is a
+   column's own duty line: if a `streams_in` / `streams_out` entry on a column
+   unit is marked as an energy or utility stream, you may attach it through
+   `_column.ColumnFlowsheet.EnergyStreams.Add(_stream)` after
+   `LoadColumnTemplate("distil")` - never through `EnergyStream` on the main
+   flowsheet. If in doubt, skip it and emit a comment.
+8. Use ONLY the exact port names spelled in section 3. Never invent a name, a
+   plural, or an ordinal. In particular `1st`, `2nd`, and `Feeds` on a heat
+   exchanger or on a fired heater are guaranteed to fail with
+   `com_error(-2147352570, 'Unknown name.')`. If the unit's topology does not
+   fit the ports of its created type, assign what fits and let the existing
+   error handling surface the mismatch - a wrong port name wastes a whole run.
+9. Two unit types need a little more than plain port assignment, and both are
+   common in refinery and petrochemical sketches:
+
+   * a FIRED HEATER (`DynamicFiredHeaterOp`) - see `Note for fired heaters`;
+   * a COLUMN (`Distillation`, `Absorber`, `ReboiledAbsorber`,
+     `RefluxedAbsorber`) - see `Note for columns`.
+
+   In both cases the operation must be prepared before it will accept a
+   stream, and that preparation call is part of the block you emit. Do not skip
+   it and do not fall back to `Feeds` / `VapourProduct`.
+
+10. THE `units` AND `streams` DICTS IN THE SCRIPT YOU WERE GIVEN ARE THE ONLY
+    KEY SPACE. `units_unit_view` tells you which connections the sketch asks
+    for; it does NOT tell you which keys exist. The keys that exist are exactly
+    the ones the Step 4 / Step 5 block declares:
+
+        units["..."]   = _add_operation(...)
+        streams["..."] = flowsheet.MaterialStreams.Add("...")
+
+    Read those declaration lines and write down the two key lists BEFORE you
+    write a single assignment. Then:
+
+      * every lookup you emit must use a key from those lists;
+      * `unit_id` and stream `id` are what the keys SHOULD be - they are not
+        what you may assume they are;
+      * if a `unit_id` has no counterpart in the `units` key list, do NOT
+        rename the lookup to a different key that happens to exist, and do NOT
+        try to create the missing unit. Emit one comment for that unit and
+        move on:
+
+            # MISSING UNIT: unit_id "Crude oil pump" is not a key of `units`
+            # in this script (keys present: ...) - no connection emitted.
+
+        and for a stream:
+
+            # MISSING STREAM: stream id "Crude oil" is not a key of `streams`
+            # in this script - no connection emitted.
+
+    A comment on its own is NOT enough, because a block that only comments its
+    mismatches raises nothing, runs to the end and saves a case that contains
+    none of the connections the sketch asked for - a silent success, which is
+    worse than a failure. So collect every mismatch and fail at the END of your
+    Step 6 body, after all connection lines and before the Step 7 marker:
+
+        _missing = [
+            "unit_id 'Crude oil pump' is not a key of `units`",
+            "stream id 'Crude oil' is not a key of `streams`",
+        ]
+        if _missing:
+            raise RuntimeError(
+                "Step 6 and Step 4/5 describe different plants: "
+                + "; ".join(_missing)
+            )
+
+    Re-pointing a lookup at whatever key happens to exist is the single most
+    damaging thing you can do here. It raises nothing, it runs to the end, it
+    saves a case, and it contains none of the connections the sketch asked
+    for: the user is handed a plant built from the wrong equipment and told the
+    run succeeded. A raise plus a comment fails visibly and can be diagnosed; a
+    silent re-pointing cannot. If the two key lists and the ids in
+    `units_unit_view` describe different plants, that is an upstream defect and
+    it must surface loudly, never as a rewritten flowsheet.
+
+11. EVERY STREAM THE SCRIPT DECLARES MUST BE USED.
+    A stream is used when it appears in some unit's `streams_in` or
+    `streams_out`. Compare the `streams` key list from rule 10 with the stream
+    ids you actually referenced, and for every declared stream that no unit
+    references, emit
+
+        # ORPHAN STREAM: "..." is declared by Step 5 but appears in no
+        # streams_in / streams_out entry - no connection emitted.
+
+    Do NOT invent a connection for it and do NOT attach it to the nearest
+    unit. A declared-but-never-referenced stream is a fact about the input;
+    report it, do not paper over it. A stream left dangling in the saved case
+    is one of the defects users report as "streams appeared from nowhere and
+    are not connected to anything".
+
+    This one is a COMMENT ONLY. Do not add an orphan to the `_missing` list and
+    do not raise for it - a stream that no unit references can be legitimate,
+    whereas a key-set mismatch cannot.
+
+3. PORT TABLE BY CREATED TYPE
+-----------------------------
+LEFT column = port(s) for `streams_in`, RIGHT column = port(s) for `streams_out`.
+Assign in the order shown; use "then" only when a unit has that many streams.
+
+| created type                       | inlet                                        | outlet                                            |
+|------------------------------------|----------------------------------------------|---------------------------------------------------|
+| PumpOp                             | FeedStream                                   | ProductStream                                     |
+| Compressor                         | FeedStream                                   | ProductStream                                     |
+| ExpandOp                           | FeedStream                                   | ProductStream                                     |
+| ValveOp                            | FeedStream                                   | ProductStream                                     |
+| PipeSeg                            | FeedStream                                   | ProductStream                                     |
+| Recycle                            | FeedStream                                   | ProductStream                                     |
+| YieldReactorOp                     | FeedStream                                   | ProductStream                                     |
+| HeaterOp                           | FeedStream                                   | ProductStream                                     |
+| CoolerOp                           | FeedStream                                   | ProductStream                                     |
+| AirCoolerOp                        | FeedStream                                   | ProductStream                                     |
+| HeatExOp                           | ShellSideFeed, TubeSideFeed                  | ShellSideProduct, TubeSideProduct                 |
+| DynamicFiredHeaterOp               | RadInlet (process side) then FuelsIn (fuel)   | RadOutlet (process side)                           |
+| MixerOp                            | Feeds collection (one .Add per inlet)        | Product                                           |
+| TeeOp                              | FeedStream                                   | Products collection (one .Add per outlet)         |
+| TankOp                             | Feeds collection (one .Add per inlet)        | VapourProduct, LiquidProduct, HeavyLiquidProduct   |
+| tankop                             | Feeds collection (one .Add per inlet)        | VapourProduct, LiquidProduct, HeavyLiquidProduct   |
+| flashtank, FlashTank               | Feeds collection (one .Add per inlet)        | VapourProduct, LiquidProduct, HeavyLiquidProduct   |
+| sep3op, Sep3Op                     | Feeds collection (one .Add per inlet)        | VapourProduct, LiquidProduct, HeavyLiquidProduct   |
+| FractOp                            | Inlets collection (one .Add per inlet)       | OverheadOutlets collection                        |
+| ConversionReactorOp                | Feeds collection                             | VapourProduct and LiquidProduct                   |
+| GibbsReactorOp                     | Feeds collection                             | VapourProduct and LiquidProduct                   |
+| KineticReactorOp                   | Feeds collection                             | VapourProduct and LiquidProduct                   |
+| EquilibriumReactorOp               | Feeds collection                             | VapourProduct and LiquidProduct                   |
+| PFReactorOp                        | Feeds collection                             | Product                                           |
+| BalanceOp                          | Feeds collection                             | Products collection                               |
+| Distillation, Absorber,            | ColumnFeeds collection (one .Add per feed)   | TopVapourProduct, TopLiquidProduct,               |
+|   ReboiledAbsorber, RefluxedAbsorber | after LoadColumnTemplate("distil")         |   BtmLiquidProduct, SideStripProduct1..4          |
+| GasCycloneOp                       | FeedStream                                   | VapourProduct then LiquidProduct                  |
+| SetOp, SpreadSheetOp, Adjust       | no ports - see note below                    | no ports                                          |
+| anything else                      | FeedStream                                   | ProductStream                                     |
+
+Note for portless types (`SetOp`, `SpreadSheetOp`, `Adjust`): emit a short
+Python comment for that unit instead of a connection, and keep going. Do not
+raise, and do not invent a port.
+
+Note for `HeatExOp`: it has exactly FOUR ports and their names carry no
+ordinal. `ShellSideFeed` and `TubeSideFeed` are single-valued, so a heat
+exchanger accepts at most two inlets and at most two outlets. Never write
+`1st ShellSideFeed`, `2nd TubeSideFeed`, `1st ShellSideProduct`,
+`2nd TubeSideProduct`, `Feeds`, `Inlet`, or anything else with a leading
+number: those members do not exist and HYSYS raises
+`com_error(-2147352570, 'Unknown name.')`. If a heat exchanger has three or
+more inlets it was created with the wrong type; that is the Instantiation
+Agent's call, not yours - do not "fix" it by inventing a port. Assign
+`ShellSideFeed` then `TubeSideFeed` for the inlets and `ShellSideProduct` then
+`TubeSideProduct` for the outlets, and if the unit has only two streams use the
+first port of each pair.
+
+Note for columns - READ THIS BEFORE WIRING ANY `Distillation`, `Absorber`,
+`ReboiledAbsorber` or `RefluxedAbsorber`:
+A column is a hierarchical sub-flowsheet, so its ports do NOT exist until the
+operation has LOADED a column template. The load is ONE call that takes the
+template name:
+
+    _column = units["<unit_id>"]
+    _column.LoadColumnTemplate("distil")
+
+`distil` is not a guess. It is `distil.col`, shipped with every HYSYS
+installation in `<install dir>\Template\`, and it is the same template the
+HYSYS "Distillation" palette button uses. `absorber.col`, `rebabs.col`,
+`refabs.col`, `vactower.col`, `liqliqex.col` and `Stabilizer.col` sit beside
+it. The bare stem `"distil"` is accepted on a freshly created operation; on an
+operation whose template is already loaded, pass the file name `"distil.col"`
+instead.
+
+Loading it builds a REAL column, not an empty shell. Verified on HYSYS V15
+(41.0), build 150842, in an isolated instance: after the load the column
+contains the inner operations `Main Tower`, `Condenser` and `Reboiler`; its
+inner streams are `Reflux`, `To Condenser`, `Boilup`, `To Reboiler`,
+`Ovhd Vapour`, `Distillate` and `Btms`; `FeedConnections.Names` is
+`['Q-Reboiler']`; and `ProductConnections.Names` is
+`['Q-Condenser', 'Ovhd Vapour', 'Distillate', 'Btms']` - four real, named,
+bindable nozzles that already include the condenser and reboiler duties.
+
+The recipe, in this order:
+
+    _column = units["<unit_id>"]
+    _column.LoadColumnTemplate("distil")          # ALWAYS FIRST
+    for _feed in [<feed stream ids in streams_in order>]:
+        _add_port(_column, "ColumnFeeds", streams["<id>"])
+    _column.ColumnFlowsheet.EnergyStreams.Add(streams["<condenser duty id>"])
+    _column.ColumnFlowsheet.EnergyStreams.Add(streams["<reboiler duty id>"])
+    _set_port(_column, "TopVapourProduct",  streams["<overhead vapour id>"])
+    _set_port(_column, "TopLiquidProduct",  streams["<distillate id>"])
+    _set_port(_column, "BtmLiquidProduct",  streams["<bottoms id>"])
+    _set_port(_column, "SideStripProduct1", streams["<side draw id>"])   # only if one exists
+
+Every value passed here is the stream OBJECT from `streams`. Never pass a
+stream name as a string - a string raises
+`com_error(-2147352571, 'Type mismatch.')`.
+
+Rules that follow from how HYSYS behaves:
+
+  * Call `LoadColumnTemplate("distil")` EXACTLY ONCE, BEFORE the first
+    `ColumnFeeds` add and before any product assignment. A product assigned
+    before the load lands on an anonymous placeholder slot and is silently
+    lost.
+  * NEVER call `CreateColumnTemplate()`. It is not an alternative spelling. It
+    produces a bare tower with seven unnamed placeholder slots and no
+    condenser or reboiler, which is why a column built that way reports
+    `AttachedProducts == []` and
+    `ProductConnections.Names == ['?','?','?','?']` no matter how carefully it
+    was wired. If the script you were given contains `CreateColumnTemplate()`,
+    the load above REPLACES it - never emit both.
+  * `ShDistOp` is not a column you can wire. The Shortcut Column exposes no
+    feeds, no products and no duties at all. Never emit it as a type and never
+    wire it with `ColumnFeeds`.
+  * Never call `EnterColumnEnvironment()`. It is unnecessary - a column can be
+    wired from the parent environment - and it changes nothing.
+  * `_add_port` and `_set_port` are both used on this operation: the feed and
+    the duty lines are collection adds, the four product nozzles are
+    single-valued properties. Use the recipe above verbatim.
+  * Verify by READING THE NAMES, never by counting:
+    `_column.ColumnFeeds.Count` stays 0 even when a feed IS attached. Read
+    `_column.FeedConnections.Names` for the inlets and
+    `_column.AttachedProducts.Names` for the bound products; after a correct
+    wiring the latter is non-empty (`['BTMS', 'OVHD', 'DIST', ...]`). Use
+    `_column.ProductConnections.Names` to see the nozzles the template
+    provided. `ColumnFeeds.Add(...)` returns `None`, so never test its return
+    value.
+  * `SideStripProduct1` through `SideStripProduct4` exist, and each one adds
+    its OWN nozzle rather than overwriting. `BtmVapourFeed` accepts a stream
+    but is not required; `TopLiquidFeed` and `TopWaterProduct` raise
+    E_INVALIDARG on a fresh template - leave them alone. Use the properties
+    listed here and nothing more.
+  * The column's condenser / reboiler duties live in the column's OWN
+    sub-flowsheet, not on the main flowsheet: `_column.ColumnFlowsheet
+    .EnergyStreams.Add(<stream>)` registers a duty and it appears in
+    `FeedConnections` as a `Q-...` nozzle. Do this only when the structured
+    data actually gave you a stream for that duty - see rule 7.
+  * After the load, `VisibleTypeName` reports 'Column Sub-Flowsheet'. That is
+    expected and correct, not a failure.
+
+Note for fired heaters - READ THIS BEFORE WIRING ANY `DynamicFiredHeaterOp`:
+A fired heater is NOT a duty block. Its process side and its fuel side are
+separate `Attachments` collections, and the class string everyone guesses
+(`FiredHeaterOp`, `FiredHeater`, `Fired Heater`) does not exist - the real one
+is `DynamicFiredHeaterOp`. Its four usable members are:
+
+    RadInlet    collection - radiant-section process feed   (use _add_port)
+    RadOutlet   collection - radiant-section process product(use _add_port)
+    FuelsIn     collection - fuel gas (and combustion air if drawn)
+    ConvInlet / ConvOutlet / EconInlet / EconOutlet
+                collections - optional convection / economiser sections
+
+Wire it with the collection helper, never with `Feeds`:
+
+    _add_port(units["<unit_id>"], "RadInlet",  streams["<process feed id>"])
+    _add_port(units["<unit_id>"], "RadOutlet", streams["<process product id>"])
+    _add_port(units["<unit_id>"], "FuelsIn",   streams["<fuel gas id>"])   # only if given
+
+Rules:
+
+  * Every one of those members is an `Attachments` collection and every
+    `.Add(stream)` call WORKS. The unit's `AttachedFeeds` / `AttachedProducts`
+    roll-ups then update by themselves - never write to those (rule 5).
+  * `RadInlet`, `RadOutlet` and `FuelsIn` are all you need for a simple process
+    fired heater. Only touch `ConvInlet` / `EconInlet` when the unit's
+    `streams_in` genuinely names three or more process streams - and if you do,
+    fill the radiant section first.
+  * A fired heater's process product usually goes on `RadOutlet`. Do NOT put
+    the fuel stream on an outlet port and do NOT put a process stream on
+    `FuelsIn`.
+  * `Feeds`, `FeedStream`, `ProductStream`, `Product`, `FuelStream`,
+    `CombustionAir` and `FlueGas` DO NOT EXIST on this type - they raise
+    `com_error(-2147352570, 'Unknown name.')`. `ExtinguishBurnerFlame()` and
+    `LightBurnerFlame()` exist but are not ports: never call them.
+  * A fired heater with no `streams_in` and no `streams_out` at all is a
+    legitimate result - the sketch drew the furnace as a duty note on the unit
+    it serves. Emit a short comment for it and move on, exactly like a portless
+    type. Do NOT delete the unit and do NOT invent a fuel stream for it.
+
+WIRING A COLUMN'S OVERHEAD TRAIN: if the Instantiation code contains a
+`Distillation` (or `Absorber`) unit, wire the column FIRST as shown above, and
+only then wire the remaining units. Some overhead systems (condenser, reboiler,
+reflux drum, reflux pump) are folded INTO the column by the coupling
+normaliser and will simply not appear as separate units - that is expected;
+their streams arrive as the column's own product and duty streams, and
+`distil.col` already contains a `Condenser` and a `Reboiler` to receive them.
+
+4. HOW TO PICK A MULTI-PRODUCT OUTLET
+-------------------------------------
+Some outlet ports are chosen by meaning, not by order. Use the `connect_point`
+of the `streams_out` entry:
+
+    "overhead"            -> decided by PHASE, not by position: VapourProduct
+                             ONLY when the stream really is a gas, otherwise a
+                             liquid port (see 4.0 and the phase rules below)
+    "bottom"              -> the DENSER liquid draw: HeavyLiquidProduct when
+                             this unit exposes it, otherwise LiquidProduct
+    "side"                -> the outlet port you did not use for this unit yet
+    "unknown" or missing  -> see below: reserved LAST, then the first
+                             still-free outlet port in the order
+                             VapourProduct, LiquidProduct, HeavyLiquidProduct
+
+For `TankOp`, `tankop`, `flashtank` and `sep3op` (all three expose the same
+four ports) apply this two-phase rule. A unit's outlets are very often a
+MIXTURE of named and unknown - for example one `"overhead"`, one `"bottom"`
+and one `"unknown"` - so you must reserve the named ones first:
+
+    Phase 1 - reserve every named outlet, in this order:
+        "overhead" -> VapourProduct when that stream is a GAS
+                   -> LiquidProduct when it is a LIQUID - the normal case for
+                      a product/flash drum overhead, and the only correct
+                      choice when the unit's other outlet is an aqueous draw
+        "bottom"   -> the denser liquid draw: LiquidProduct if that port is
+                      still free, otherwise HeavyLiquidProduct
+        "side"     -> a LIQUID side draw: the first still-free port of
+                      LiquidProduct, HeavyLiquidProduct - never VapourProduct
+                      unless the stream really is a gas
+
+    Phase 2 - only then hand out the `"unknown"` / missing outlets, giving
+              each one the FIRST STILL-FREE port in the order
+              VapourProduct, LiquidProduct, HeavyLiquidProduct.
+
+THE "UNKNOWN" OUTLETS ARE HANDED OUT LAST (PHASE 2)
+---------------------------------------------------
+Never give an unknown outlet a port that Phase 1 already claimed. A reserved
+port is occupied even though you have not written it yet, so collect all the
+named outlets before you start filling the unknowns.
+
+Example - a vessel with three `streams_out` whose `connect_point` values are
+`"overhead"`, `"bottom"` and `"unknown"`, in that order in the JSON, and whose
+overhead stream is a GAS:
+
+    "overhead" -> VapourProduct        (Phase 1, because the stream is a gas)
+    "bottom"   -> LiquidProduct        (Phase 1)
+    "unknown"  -> HeavyLiquidProduct   (Phase 2: VapourProduct and LiquidProduct
+                                        are already reserved)
+
+If that overhead stream were a hydrocarbon LIQUID instead - an oil-over-water
+vessel - then `"overhead"` takes `LiquidProduct` and `"bottom"` takes
+`HeavyLiquidProduct`; `"unknown"` then falls to the only port still free, and
+if none of the remaining ports matches the stream's phase, say so in a comment
+instead of reusing a port.
+
+If such a vessel has exactly one `streams_out` and its `connect_point` is
+`"overhead"`, apply that same phase test: `VapourProduct` if the stream is a
+gas, `LiquidProduct` if it is a liquid. If it has a fourth `streams_out` it has
+more outlets than the vessel exposes and the Instantiation Agent picked the
+wrong rich type - use `HeavyLiquidProduct` for the third and let the fallback
+wrapper report the overrun; do not reuse a port.
+
+GEOGRAPHY IS NOT PHASE. `"overhead"` records where the draftsperson drew the
+nozzle, not what flows through it. A settler, a desalter, a coalescer or a
+three-phase drum draws its HYDROCARBON product from the top and its WATER from
+the bottom; both of those are liquids and neither is a vapour. Bind the
+hydrocarbon product to `VapourProduct` and HYSYS treats that line as a flashed
+vapour draw: the liquid product line is left carrying an almost empty vapour
+and the saved case shows the vessel's vapour outlet feeding whatever comes next
+in the sketch - a cooler, a pump, a valve. That is precisely the "the gas
+stream of the separator goes to a pump, and there is no pump in the drawing"
+defect that users report.
+
+So decide each outlet nozzle from the stream's OWN phase, using its id / name
+as the evidence:
+
+    gas / vapour / vapor / off-gas / flash gas / fuel gas / flue gas /
+    vent / purge / acid gas / hydrogen / H2             -> VapourProduct
+
+    water / wash water / brine / sour water / aqueous /
+    effluent water / boot drain                          -> the DENSER liquid:
+                                                            HeavyLiquidProduct
+                                                            if this type
+                                                            exposes it, else
+                                                            LiquidProduct
+
+    any other liquid - oil, naphtha, distillate, product, bottoms, reflux,
+    condensate, or a stream that leaves toward a pump, valve, cooler, heater,
+    mixer, tank or pipe                              -> LiquidProduct
+
+A unit that has BOTH an aqueous draw and a hydrocarbon product is a
+three-phase separation. Both of its product lines are liquids, so on a
+`TankOp` / `tankop` / `flashtank` / `sep3op` they take `LiquidProduct` and
+`HeavyLiquidProduct`, and `VapourProduct` stays unbound. Leaving an outlet
+nozzle unbound is correct and harmless; binding a liquid to `VapourProduct` is
+not.
+
+`GasCycloneOp` has only one confirmed outlet port in this build: if it has more
+than one `streams_out`, try `VapourProduct` first and `LiquidProduct` second and
+let the fallback wrapper handle a rejection.
+
+4.0 NEVER PUT A LIQUID ON A VAPOUR PORT
+---------------------------------------
+`VapourProduct` is a flashed VAPOUR draw. `LiquidProduct` and
+`HeavyLiquidProduct` are the two liquid draws. Read the stream NAME before you
+pick the port:
+
+    vapour / gas / fuel gas / vent / purge / off-gas / flash gas  -> VapourProduct
+    reflux / distillate / product / bottoms / water / oil /
+    condensate / draw                                            -> a liquid port
+
+A reflux drum whose overhead has been TOTALLY condensed has no vapour product at
+all: the reflux returning to the column and the net distillate going on to the
+product cooler are both liquids, so they take `LiquidProduct` and
+`HeavyLiquidProduct` and `VapourProduct` stays unbound. Binding a liquid
+distillate to `VapourProduct` leaves that product line carrying an almost empty
+flashed vapour, which is how a fully wired vessel ends up looking unconnected
+downstream. Wire a vessel's outlets by meaning, never by "the next free port".
+
+4.1 THE DISPLACEMENT HAZARD (read this before assigning outlets)
+----------------------------------------------------------------
+The single-product types - `PumpOp`, `Compressor`, `ExpandOp`, `ValveOp`,
+`HeaterOp`, `CoolerOp`, `AirCoolerOp`, `PipeSeg`, `Recycle`, `YieldReactorOp` -
+expose exactly ONE `ProductStream` port. Assigning a second stream to a port
+that already holds one does not raise: HYSYS silently MOVES the port to the new
+stream and the first product quietly becomes unattached. The run then looks
+successful while a product stream has no upstream operator.
+
+Therefore: before assigning outlets, count `streams_out` in `units_unit_view`.
+
+  * If the count is 1, proceed normally.
+  * If the count is 2 or more and the created type is one of the single-product
+    types listed above, the Instantiation Agent chose the wrong type for this
+    unit. Do NOT assign the second product to `ProductStream`. Instead raise a
+    clear error naming the unit, for example:
+
+        raise RuntimeError(
+            "unit 'Electrostatic separator' has 2 outlets but was created as "
+            "PipeSeg, which has a single ProductStream port; it must be TankOp"
+        )
+
+    A loud failure is correct here: it lets the fixer agent repair the unit type
+    instead of shipping a flowsheet with a lost product stream.
+
+5. REQUIRED HELPER BLOCK
+------------------------
+Emit these helpers ONCE, at the very top of your Step 6 body, before any
+connection. They make the generated script tolerant of members that the
+HYSYS type library hides from late binding.
+
+    def _member(_obj, _name):
+        try:
+            return getattr(_obj, _name)
+        except AttributeError:
+            import pythoncom
+            _ole = getattr(_obj, "_oleobj_", None)
+            if _ole is None:
+                raise
+            return _ole.Invoke(
+                _ole.GetIDsOfNames(_name), 0, pythoncom.DISPATCH_PROPERTYGET, True
+            )
+
+    def _set_port(_obj, _port_name, _stream):
+        try:
+            setattr(_obj, _port_name, _stream)
+            return
+        except AttributeError as _attribute_error:
+            import pythoncom
+            _ole = getattr(_obj, "_oleobj_", None)
+            if _ole is None:
+                raise _attribute_error
+            _ole.Invoke(
+                _ole.GetIDsOfNames(_port_name), 0,
+                pythoncom.DISPATCH_PROPERTYPUT, False, _stream,
+            )
+
+    def _add_port(_obj, _collection_name, _stream):
+        return _member(_obj, _collection_name).Add(_stream)
+
+`_add_port` is the ONLY correct way to wire the collection-based inlet types:
+`MixerOp` / `TankOp` / `flashtank` / `sep3op` / reactors (`Feeds`), `TeeOp`
+(`Products`), `FractOp` (`Inlets`), and the two special cases from section 3:
+
+```python
+# a fired heater: process side, then fuel side, all through collections
+_add_port(units["FH-100"], "RadInlet",  streams["FEED"])
+_add_port(units["FH-100"], "RadOutlet", streams["PROD"])
+_add_port(units["FH-100"], "FuelsIn",   streams["FUEL"])
+
+# a column: LOAD THE TEMPLATE FIRST - every port below fails without this call
+_column = units["T-100"]
+_column.LoadColumnTemplate("distil")
+_add_port(_column, "ColumnFeeds", streams["COL-FEED"])
+_set_port(_column, "TopVapourProduct", streams["OVHD"])
+_set_port(_column, "TopLiquidProduct", streams["DIST"])
+_set_port(_column, "BtmLiquidProduct", streams["BTMS"])
+```
+
+Note the difference: on a fired heater the process ports are collections too,
+so they take `_add_port`; on a column the feed is a collection but the products
+are single-valued properties, so they take `_set_port`. Always call
+`LoadColumnTemplate("distil")` before either - and never
+`CreateColumnTemplate()`.
+
+Then use ONLY these wrappers:
+
+    single-port assignment :  _set_port(units["<unit_id>"], "FeedStream", streams["<id>"])
+    collection add         :  _add_port(units["<unit_id>"], "Feeds",      streams["<id>"])
+
+Never call `setattr` on a port directly and never call a port method directly -
+always go through `_set_port` / `_add_port`.
+
+6. SHAPE OF THE GENERATED BODY
+------------------------------
+Group the code by unit, in the same order as `units_unit_view`, with a comment
+naming the unit before each group:
+
+    # --- Unit: Fresh water pump (PumpOp) ---
+    _set_port(units["Fresh water pump"], "FeedStream", streams["Fresh water feed"])
+    _set_port(units["Fresh water pump"], "ProductStream", streams["Combined crude oil, demulsifier, and fresh water stream"])
+
+    # --- Unit: Electrostatic separator (TankOp) ---
+    # oil drawn on top, water below - BOTH products are liquids, so this unit
+    # exposes no vapour product at all and VapourProduct stays unbound
+    _add_port(units["Electrostatic separator"], "Feeds", streams["Mixture"])
+    _set_port(units["Electrostatic separator"], "LiquidProduct", streams["Desalted crude oil"])
+    _set_port(units["Electrostatic separator"], "HeavyLiquidProduct", streams["Effluent water"])
+
+    # --- Unit: Mixing valve (ValveOp) ---
+    _set_port(units["Mixing valve"], "FeedStream", streams["Combined crude oil, demulsifier, and fresh water stream"])
+    _set_port(units["Mixing valve"], "ProductStream", streams["Mixture"])
+
+Keep the keys exactly as they appear in the `units` / `streams` dicts of the
+script you were given, including spaces, `/` and commas. Never rename a key,
+never build a key by joining `unit_id` and a role, never take a key from the
+`name` field of `units_unit_view`, and never wrap a key in `re.sub` or any other
+cleaner. The snippets above illustrate the SHAPE of the block and use keys that
+exist in the example script; they are not a source of names for your script.
+
+7. SAFETY CHECKS BEFORE RETURNING
+---------------------------------
+- You wrote down the `units[...]` and `streams[...]` keys declared by the
+  Step 4 / Step 5 block BEFORE writing any assignment, and every name in every
+  helper call is one of those keys - never a `unit_id` or a stream `id` taken
+  straight from `units_unit_view`.
+- No `unit_id` or stream `id` was silently re-pointed at a different existing
+  key. Every id with no counterpart in the key lists produced a
+  `# MISSING UNIT:` / `# MISSING STREAM:` comment instead.
+- If you emitted any `# MISSING ...` comment you ALSO emitted the `_missing`
+  list and the `raise RuntimeError` that goes with it. `# ORPHAN STREAM:`
+  comments are comment-only and never raise.
+- Every stream key declared by Step 5 is referenced by at least one
+  `streams_in` / `streams_out` entry; every declared stream that is not carries
+  an `# ORPHAN STREAM:` comment, and none was attached to an arbitrary unit.
+- No liquid product was bound to `VapourProduct`. Each outlet nozzle matches
+  the phase of the stream it carries (section 4.0 and the phase rules above).
+- Every `streams_in` and `streams_out` entry produced exactly one assignment.
+- No stream id appears in two different units.
+- Every unit has all of its inlets assigned before any of its outlets.
+- No connection was invented and no unit or stream was created.
+- Every `Distillation` / `Absorber` / `ReboiledAbsorber` / `RefluxedAbsorber`
+  unit has `LoadColumnTemplate("distil")` emitted ONCE, BEFORE the first
+  `ColumnFeeds` add and before any product assignment, and is wired with
+  `ColumnFeeds` plus the product properties - never with `Feeds` /
+  `VapourProduct`. `CreateColumnTemplate()` must NOT appear anywhere.
+- `ShDistOp` appears nowhere in the block - it cannot be wired.
+- Every `DynamicFiredHeaterOp` unit is wired with `RadInlet` / `RadOutlet` /
+  `FuelsIn` only - never with `Feeds`, `FeedStream` or `ProductStream`.
+
+8. RUNTIME FAILURES ALREADY OBSERVED - AND THEIR ONLY VALID FIXES
+-----------------------------------------------------------------
+These tracebacks were captured from real runs of this pipeline against HYSYS
+V15 over COM, or are the failures the instructions above deliberately provoke.
+If an issue report quotes one of them, apply exactly the fix shown - edit that
+one string literal and change nothing else.
+
+(a) pywintypes.com_error: (-2147352567, 'Exception occurred.',
+    (0, None, None, None, 0, -2147024809), None) raised by the line
+
+        fluidpkg.PropertyPackageName = "<some name>"
+
+    Cause: the string is a HYSYS *display* name, not an internal token.
+    HYSYS rejects "Peng-Robinson" (and "PengRobinson", "Peng Robinson", "PR",
+    "PR78", "PR-BM"), "RK-Soave", "RKS", "RK", "SRKKD", "KabadiDanner",
+    "Ideal", "RaoultsLaw", "ChaoSeader", "GraysonStreed", "ZJ",
+    "LeeKeslerPlocker", "PCSAFT", "UNIFAC", "ASME Steam" and "NBS Steam" with
+    E_INVALIDARG.
+
+    ONLY VALID FIX: replace that one string literal with exactly one of
+
+        "SRK"   "PRSV"   "LKP"   "MBWR"   "SourPR"   "SourSRK"   "NRTL"
+        "UNIQUAC"   "Antoine"   "BraunK10"   "Wilson"   "VanLaar"   "Margules"
+
+    Pick "PRSV" for hydrocarbon, crude-oil or gas-processing cases, "SRK" when
+    unsure, "NRTL" for polar / aqueous / alcohol-rich cases. Keep the comment
+    and the surrounding lines untouched; never introduce a lookup table, an
+    if-block or a try/except around this line.
+
+(b) pywintypes.com_error: (-2147417851, ...) or an attribute error raised by a
+    column port (ColumnFeeds, CondenserEnergy, ReboilerEnergy, any product
+    property) means the unit was wired before the template existed. The fix is
+    to emit `LoadColumnTemplate("distil")` ONCE, immediately after the column
+    object is obtained and BEFORE the first ColumnFeeds add - see section 3.
+
+(c) Never "fix" any of the above by removing, commenting out, renaming or
+    reordering the offending line, or by adding new objects. The line must
+    remain and must carry a corrected value.
+
+(d) `KeyError: '<some unit or stream name>'` raised by one of the Step 6
+    connection lines, or a `RuntimeError` whose message says a `unit_id` / a
+    stream id is missing from `units` / `streams`. Either way one of the two
+    blocks referenced a key the Step 4 / Step 5 block never created. Before you
+    change anything, write down the two lists: the `units[...]` / `streams[...]`
+    keys the script actually declares, and the names the Step 6 lines use.
+
+      * If the two lists hold the SAME ids in a different spelling - one lookup
+        is off by a word, a space or a capital letter - fix that one lookup to
+        the spelling the script declares. That is a real fix. Then delete the
+        matching entry from the `_missing` list next to the `raise`, so that a
+        mismatch you just resolved does not stop the run.
+      * If the two lists are DIFFERENT SETS - different counts, different
+        equipment, different roles, e.g. the Step 6 block wires "Crude oil
+        pump" / "Mixing valve" while the script declares "Crude oil feed
+        pump" / "Desalting mixer" - then the two blocks describe two different
+        plants. That is not a spelling problem and it cannot be repaired here.
+        In that case DO NOT re-point the lookups at whatever keys happen to
+        exist: that silently rewrites the flowsheet into a plant the sketch
+        never showed, it runs to the end, it saves a case, and it is reported
+        as a success. Instead leave the connection lines as they are, add a
+        comment naming the mismatch, e.g.
+
+            # MISMATCH: Step 6 wires unit_id "Crude oil pump" but Step 4
+            # declares "Crude oil feed pump" - the two blocks disagree, so no
+            # connection was re-pointed. Re-run the pipeline.
+
+        and return the script with the fault still in it, so that the run fails
+        visibly. A loud failure is the correct outcome; a plausible wrong case
+        is not.
+
+(e) `RuntimeError` whose message starts with "STRUCTURED_JSON was not a usable
+    structure object". The Instantiation step never received the sketch
+    structure, so it created no units and no streams on purpose. This script
+    cannot be repaired: the information needed to build it does not exist in
+    any of the inputs you were given, and `units_unit_view` is not a
+    substitute - it lists connections, not the equipment the script must
+    declare. Do NOT remove the `raise`, do NOT put units, streams or
+    connections back, and do NOT try to reconstruct the plant. Return the
+    script unchanged, or with a comment recording that the structure document
+    was missing, so that the failure reaches the user.
+
+9. REQUIRED OUTPUT
+------------------
+Return ONE fenced ```python block and nothing else. The block must begin with
+
+    # === Step 6: Connect Streams (Agent 3) ===
+
+and its last line must be
+
+    # === Step 7: Save Simulation ===
+
+(that trailing marker is stripped and re-inserted by the caller, so emit it
+exactly once). Between them put nothing but the helper block, the connection
+lines and - only when you found mismatches - the `_missing` list and the
+`raise RuntimeError` required by section 2 rule 10. No prose, no explanations,
+no JSON, no second code fence, and never a `try/except` around the whole
+body.
