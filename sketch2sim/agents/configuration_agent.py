@@ -5,9 +5,14 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableLambda
-from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph
 from pydantic import BaseModel
+
+from ..utils.deepseek_client import build_llm
+
+#: DeepSeek has no Ollama-style context/output settings, so the generation
+#: budget is controlled directly.
+CONFIGURATION_MAX_TOKENS = int(os.getenv("CONFIGURATION_MAX_TOKENS", "5000"))
 
 _STEP6_HEADER_RE = re.compile(
     r"(?im)^\s*#\s*===\s*Step\s*6:\s*Connect\s*Streams\s*\(Agent\s*3\)\s*===\s*$"
@@ -149,11 +154,10 @@ def _replace_step_6(instantiation_code: str, step_6_code: str) -> str:
 def generate_configuration_script(
     state: ConfigurationState, model_name: str
 ) -> dict[str, Any]:
-    llm = ChatOllama(
-        model=model_name,
-        temperature=0,
-        num_ctx=30000,
-        num_predict=5000,
+    llm = build_llm(
+        model_name,
+        max_tokens=CONFIGURATION_MAX_TOKENS,
+        temperature=0.0,
     )
 
     instantiation_code = _load_text(state.instantiation_path)

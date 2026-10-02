@@ -5,14 +5,19 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableLambda
-from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph
 from pydantic import BaseModel
-from RAG.rag_components import build_component_retriever
-from utils.logging_utils import log_prompt
+
+from ..RAG.rag_components import build_component_retriever
+from ..utils.deepseek_client import build_llm
+from ..utils.logging_utils import log_prompt
 
 _STEP4_MARKER = r"# === Step 4: Add Unit Operations \(Agent 2\) ==="
 _CLEAN_SUFFIX = {"feed", "fresh", "batch", "raw"}
+
+#: DeepSeek has no Ollama-style context/output settings, so the generation
+#: budget is controlled directly.
+BASIS_MAX_TOKENS = int(os.getenv("BASIS_MAX_TOKENS", "5000"))
 
 
 class BasisState(BaseModel):
@@ -90,11 +95,9 @@ def _build_knowledge_base(materials: list[str]) -> str:
     if not materials:
         return ""
 
-    retriever = build_component_retriever(
-        excel_path="RAG/components_list.xlsx",
-        mixture_path="RAG/mixture_recipes.txt",
-        persist_dir="RAG/chroma_components",
-    )
+    # Asset paths resolve relative to the RAG package folder so the workflow
+    # works regardless of the process working directory.
+    retriever = build_component_retriever()
 
     chunks = []
     for material in materials:
@@ -178,7 +181,7 @@ def generate_basis_script(state: BasisState, model_name: str) -> dict[str, Any]:
         human_prompt=user_prompt,
     )
 
-    llm = ChatOllama(model=model_name, temperature=0)
+    llm = build_llm(model_name, max_tokens=BASIS_MAX_TOKENS, temperature=0.0)
     response = llm.invoke(
         [
             SystemMessage(content=system_prompt),

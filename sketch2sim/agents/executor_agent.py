@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from datetime import datetime
 from typing import Any
 
@@ -26,11 +27,18 @@ def run_executor(state: ExecutorState) -> dict[str, Any]:
     print(f"[Executor Agent] Executing script -> {state.code_path}")
 
     try:
+        child_env = os.environ.copy()
+        child_env.setdefault("PYTHONUTF8", "1")
+        child_env.setdefault("PYTHONIOENCODING", "utf-8")
+
         result = subprocess.run(
-            ["python", state.code_path],
+            [sys.executable or "python", state.code_path],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=600,
+            env=child_env,
         )
     except subprocess.TimeoutExpired:
         summary = f"Timeout while executing {state.code_path}"

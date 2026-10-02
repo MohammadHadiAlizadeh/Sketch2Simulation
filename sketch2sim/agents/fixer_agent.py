@@ -1,9 +1,14 @@
+import os
 from collections.abc import Iterable
 from pathlib import Path
 
-from langchain_ollama import ChatOllama
-from utils.agent_utils import read_text_file
-from utils.logging_utils import log_text
+from ..utils.agent_utils import read_text_file
+from ..utils.deepseek_client import build_llm
+from ..utils.logging_utils import log_text
+
+#: DeepSeek has no Ollama-style context/output settings, so the generation
+#: budget is controlled directly.
+FIXER_MAX_TOKENS = int(os.getenv("FIXER_MAX_TOKENS", "5000"))
 
 FIXER_SYSTEM_PROMPT = """
 You are a code-fixing agent.
@@ -71,11 +76,10 @@ def _call_fixer_llm(
     model_name: str,
     temperature: float = 0.0,
 ) -> str:
-    llm = ChatOllama(
-        model=model_name,
+    llm = build_llm(
+        model_name,
+        max_tokens=FIXER_MAX_TOKENS,
         temperature=temperature,
-        num_ctx=21000,
-        num_predict=5000,
         top_p=1.0,
     )
 
@@ -83,7 +87,10 @@ def _call_fixer_llm(
     content = getattr(response, "content", response)
 
     if isinstance(content, list):
-        content = "".join(part.get("text", "") for part in content)
+        content = "".join(
+            part.get("text", "") if isinstance(part, dict) else str(part)
+            for part in content
+        )
 
     text = str(content).strip()
 
@@ -106,7 +113,7 @@ def fix_code_text(
     unit_view_json_str: str,
     validator_issues: str,
     code_text: str,
-    model_name: str = "qwen2.5-coder:latest",
+    model_name: str = "deepseek-flash",
     temperature: float = 0.0,
 ) -> str:
     prompt = _build_fixer_prompt(
@@ -129,7 +136,7 @@ def fix_code_file(
     code_path: str | Path,
     unit_view_json_str: str,
     validator_issues: str,
-    model_name: str = "qwen2.5-coder:latest",
+    model_name: str = "deepseek-flash",
     temperature: float = 0.0,
     log_dir: str | Path | None = None,
     instantiation_instruction_paths: Iterable[str | Path],
