@@ -7,7 +7,56 @@ from openai import OpenAI
 #: read timeout is deliberately generous.
 _TIMEOUT = httpx.Timeout(connect=30.0, read=900.0, write=300.0, pool=30.0)
 
-_TRUE_VALUES = {"1", "true", "yes", "on"}
+_TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
+
+#: One switch for the whole pipeline. When thinking is enabled DeepSeek emits
+#: `reasoning_content` (chain-of-thought) BEFORE `content` (the answer), and
+#: BOTH count against `max_tokens`. A cap sized for the answer alone therefore
+#: starves the answer -> empty/truncated output. The API default is 8K tokens
+#: non-thinking vs 64K thinking, so mirror that here.
+_THINKING_MAX_TOKENS = int(os.getenv("DEEPSEEK_THINKING_MAX_TOKENS", "64000"))
+
+
+def _thinking_enabled() -> bool:
+    return os.getenv("DEEPSEEK_THINKING", "").strip().lower() in _TRUE_VALUES
+
+
+def _thinking_extra() -> dict:
+    """Body fragment selecting the thinking / non-thinking model."""
+    return {"thinking": {"type": "enabled" if _thinking_enabled() else "disabled"}}
+
+
+def _resolve_max_tokens(max_tokens: int) -> int:
+    """Give thinking mode room for CoT + answer; never shrink the caller's cap."""
+    if _thinking_enabled():
+        return max(max_tokens, _THINKING_MAX_TOKENS)
+    return max_tokens
+
+
+def _final_answer(resp) -> str:
+    """Return the assistant's final answer.
+
+    Fails loudly instead of silently returning an empty string: when thinking
+    is enabled the chain-of-thought can consume the whole budget, leaving
+    `content` empty, which downstream agents read as "no content" and turn into
+    an empty structure document.
+    """
+    choice = resp.choices[0]
+    message = choice.message
+    content = (message.content or "").strip()
+    if content:
+        return content
+
+    reasoning = (getattr(message, "reasoning_content", None) or "").strip()
+    if reasoning and choice.finish_reason != "length":
+        return reasoning
+
+    raise RuntimeError(
+        "DeepSeek returned no final answer "
+        f"(finish_reason={choice.finish_reason!r}). "
+        "In thinking mode the chain-of-thought shares `max_tokens` with the "
+        "answer; raise DEEPSEEK_THINKING_MAX_TOKENS or set DEEPSEEK_THINKING=0."
+    )
 
 
 def build_http_client() -> httpx.Client:
@@ -50,10 +99,10 @@ def chat_text(
             {"role": "user", "content": user},
         ],
         temperature=temperature,
-        max_tokens=max_tokens,
-         extra_body={"thinking": {"type": "disabled"}},
+        max_tokens=_resolve_max_tokens(max_tokens),
+        extra_body=_thinking_extra(),
     )
-    return (resp.choices[0].message.content or "").strip()
+    return _final_answer(resp)
 
 
 def chat_vision(
@@ -84,11 +133,10 @@ def chat_vision(
             },
         ],
         temperature=temperature,
-        max_tokens=max_tokens,
-        extra_body={"thinking": {"type": "disabled"}},
-       # "reasoning_effort": "max"},
+        max_tokens=_resolve_max_tokens(max_tokens),
+        extra_body=_thinking_extra(),
     )
-    return (resp.choices[0].message.content or "").strip()
+    return _final_answer(resp)
 
 
 def build_llm(
@@ -113,12 +161,12 @@ def build_llm(
     return ChatOpenAI(
         model=model_name,
         temperature=temperature,
-        max_tokens=max_tokens,
+        max_tokens=_resolve_max_tokens(max_tokens),
         top_p=top_p,
         api_key=api_key,
         base_url="https://api.deepseek.com",
         http_client=build_http_client(),
         # Keep langchain-openai from replacing the transport we configured.
         http_socket_options=(),
-        extra_body={"thinking": {"type": "disabled"}},
+        extra_body=_thinking_extra(),
     )
